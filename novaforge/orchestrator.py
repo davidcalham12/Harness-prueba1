@@ -33,6 +33,7 @@ from .security.audit import (
     ChainReport,
 )
 from .security.prompting import scan_for_injection
+from .security.secrets import Redactor
 from .security.sandbox import Workspace
 from .spec.flow import FlowSpec, Stage as StageSpec
 from .stages import build_stage
@@ -115,7 +116,11 @@ class Orchestrator:
         self.engine = engine
         self.premise = premise
         self.slug = slug
-        self.report = report
+        # SEC-2.2. Everything this run writes or prints goes through the
+        # redactor: logs, state.json and the terminal all get copied into
+        # tickets by someone quoting a traceback in a hurry.
+        self.redactor = Redactor.from_env()
+        self.report = lambda line: report(self.redactor.scrub(str(line)))
         self._injection_hits = 0
         self._bible = FileBible(workspace, on_write=self._on_bible_write)
         self.state = RunState(slug=slug, premise=premise, config_hash=config.hash)
@@ -148,8 +153,8 @@ class Orchestrator:
 
     def _log(self, row: Mapping[str, Any]) -> None:
         """One chained row. Every write to the audit log goes through here."""
-        self._chain.append({"ts": round(time.time(), 3),
-                            "config_hash": self.config.hash, **row})
+        self._chain.append(self.redactor.scrub_data(
+            {"ts": round(time.time(), 3), "config_hash": self.config.hash, **row}))
 
     # -- the model call, in one place ------------------------------------
 
@@ -319,7 +324,8 @@ class Orchestrator:
         ))
 
     def _persist(self) -> None:
-        self.workspace.write_json("state.json", data=self.state.to_dict())
+        self.workspace.write_json(
+            "state.json", data=self.redactor.scrub_data(self.state.to_dict()))
 
     def _write_cost(self) -> None:
         self.workspace.write_json("logs/cost.json", data={

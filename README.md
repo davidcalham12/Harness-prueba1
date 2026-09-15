@@ -41,7 +41,7 @@ NovaForge: A deep-space salvage crew finds a derelict that remembers th  [hard-s
     wrote dist/book.md — 3 chapters, 1,284 words, wrapped at 64 columns
     wrote dist/book.pdf — 7 pages, A5, 10pt Helvetica, 6,861 bytes
 
-  audit     chain intact (27 rows, hash chain)
+  audit     chain intact (31 rows, hash chain)
 ```
 
 **Two lines in that output matter more than the rest.**
@@ -118,7 +118,7 @@ refuses to start if a skill and `flow.yaml` disagree.
 ## Try it
 
 ```bash
-python -m pytest -q                  # 465 tests, offline, ~16 seconds
+python -m pytest -q                  # 551 tests, offline, ~18 seconds
 python tools/check_specs.py          # specs, skills and tests still agree
 python -m novaforge new "your premise here" --profile tiny --engine mock
 python -m novaforge status <slug>
@@ -172,7 +172,7 @@ it becomes an HMAC chain instead.
 
 ```bash
 python -c "from novaforge.security.audit import AuditChain; from novaforge.security.sandbox import Workspace; print(AuditChain(Workspace('output/golden-tiny', create=False)).verify())"
-# chain intact (27 rows, hash chain)
+# chain intact (31 rows, hash chain)
 ```
 
 ## Adding an agent
@@ -216,9 +216,10 @@ kind of documentation:
 - **`--engine anthropic` is not implemented.** Everything runs on the mock. The
   budget guard and the credential handling that a paid run needs are partly in
   place; the engine itself is not.
-- **Three of six security layers are missing.** SEC-3, SEC-4 and SEC-6 exist.
-  SEC-1 (input validation), SEC-2 (secrets and redaction) and SEC-5 (a shared
-  escaping module) are described in `SECURITY.md` and not yet written.
+- **One of six security layers is missing.** SEC-1 to SEC-4 and SEC-6 exist and
+  are tested. SEC-5 has no module of its own: the escaping the shipping path
+  needs lives inside `export/markdown.py` and `export/pdf.py`, and the
+  `xml_escape` and `svg_text` that `SECURITY.md` describes do not exist.
 - **The two critics are scored in code, not by a model.** `docs/novaforge_flow.mermaid`
   shows them as model-driven, and their prompts exist; this build evaluates them
   deterministically so a mock run stays reproducible and `output/golden-tiny/`

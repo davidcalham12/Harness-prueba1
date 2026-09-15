@@ -5,10 +5,11 @@ under `tests/security/`. This document says *why* each layer exists and what
 it does not cover; the testable requirements are the `SEC-n.m` identifiers
 below, cited from the docstrings of the tests that cover them.
 
-**Three of the six are not written yet.** SEC-3, SEC-4 and SEC-6 exist and are
-tested. SEC-1, SEC-2 and SEC-5 are described here and have no module; each is
-marked below. A security document that reads as though everything in it ships
-is worse than one layer short.
+**Five of the six are written and tested.** SEC-5 is the exception: the
+escaping the shipping path needs lives inside `export/markdown.py` and
+`export/pdf.py` rather than in a module of its own, and `xml_escape` and
+`svg_text` do not exist at all. It is marked below. A security document that
+reads as though everything in it ships is worse than one layer short.
 
 ## Threat model
 
@@ -32,9 +33,6 @@ attacks. They are:
 
 ## SEC-1 — Input validation (`security/validation.py`)
 
-> **NOT YET WRITTEN.** `novaforge/security/validation.py` does not exist in
-> this build. What follows is the design, not a description of shipped code.
-
 Rejects rather than coerces. The slug must match
 `^[a-z0-9][a-z0-9-]{0,63}$`, is refused if it is a Windows device name, and is
 the only path component that ever comes from the user. Premises are bounded in
@@ -42,19 +40,27 @@ length and refused if they contain control or invisible-format characters
 (Unicode `Cc`/`Cf`) - the class of characters that hides text from a human
 reviewer while the model still reads it.
 
+A premise carrying something credential-shaped is also refused. That is not
+content moderation - it is the one input that reaches the Story Bible
+verbatim, and from there the manuscript, which SEC-2 deliberately does not
+scrub. The door is the only place it can be caught.
+
 **Not covered:** the *content* of a premise. NovaForge does not moderate what
 you ask it to write.
 
 ## SEC-2 — Secrets (`security/secrets.py`)
-
-> **NOT YET WRITTEN.** `novaforge/security/secrets.py` does not exist in
-> this build. What follows is the design, not a description of shipped code.
 
 The credential is read from the environment only. There is no `--api-key` flag,
 because a flag lands in shell history and in the process table where any other
 local user can read it. A `Redactor` scrubs key-shaped strings, bearer tokens
 and `api_key=` assignments, plus the live key as a literal value, from every
 log row, every `state.json` write and every line the CLI prints.
+
+The redactor covers logs, `state.json` and **every** line the CLI prints -
+including the banner, which quotes the premise. It deliberately does **not**
+cover `dist/`. Scrubbing an author's prose is its own corruption, and a
+manuscript is prose rather than a log; SEC-1 is what keeps a credential from
+reaching it.
 
 **Not covered:** what the API provider does with the prompts you send. Read
 their retention policy.

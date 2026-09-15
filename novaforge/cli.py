@@ -28,6 +28,8 @@ from .orchestrator import (
 )
 from .pricing import DEFAULT_MODEL, is_known_model
 from .security.sandbox import SandboxViolation, Workspace
+from .security.secrets import Redactor
+from .security.validation import ValidationError, validate_premise, validate_slug
 from .spec.flow import SpecError, load_flow
 
 __all__ = ["main", "run_cli"]
@@ -159,7 +161,13 @@ def _summarise(report, state, workspace, orchestrator=None) -> None:
 
 
 def _run(args, *, resume: bool) -> int:
-    report = (lambda *_: None) if getattr(args, "quiet", False) else print
+    # SEC-2.2: every line the CLI prints, not just the ones the orchestrator
+    # emits. The banner quotes the premise, which is user-supplied.
+    redactor = Redactor.from_env()
+    if getattr(args, "quiet", False):
+        report = lambda *_: None  # noqa: E731
+    else:
+        report = lambda line="": print(redactor.scrub(str(line)))  # noqa: E731
     root = package_root()
 
     if resume:
@@ -224,6 +232,16 @@ def _run(args, *, resume: bool) -> int:
 
     premise = getattr(args, "premise", "")
     slug = getattr(args, "slug", None) or (args.slug if resume else None) or derive_slug(premise)
+
+    # SEC-1, before the workspace exists. The slug is the only path
+    # component in the program that comes from a human.
+    try:
+        slug = validate_slug(slug)
+        if not resume:
+            premise = validate_premise(premise)
+    except ValidationError as exc:
+        print(f"invalid input: {exc}", file=sys.stderr)
+        return 2
     out_dir = root / "output" / slug
 
     try:

@@ -123,14 +123,15 @@ class TestCliResume:
                                                                      monkeypatch):
         """Forgetting `--profile tiny` must not silently continue a
         three-chapter book as a twelve-chapter one."""
+        from conftest import isolated_root
         from novaforge import cli
-        from novaforge.config import package_root
 
-        monkeypatch.setattr(cli, "package_root", lambda: package_root())
-        _, _, space = run_novel(package_root() / "output", slug="_cli_resume_test")
-        try:
-            assert cli.main(["resume", "_cli_resume_test", "--quiet"]) == 0
-            assert space.read_json("state.json")["chapters"].__len__() == 3
-        finally:
-            import shutil
-            shutil.rmtree(space.root, ignore_errors=True)
+        root = isolated_root(tmp_path)
+        monkeypatch.setattr(cli, "package_root", lambda: root)
+        assert cli.main(["new", "A salvage crew finds a derelict that remembers them",
+                         "--slug", "cli-resume", "--profile", "tiny",
+                         "--engine", "mock", "--quiet"]) == 0
+        assert cli.main(["resume", "cli-resume", "--quiet"]) == 0
+        state = json.loads(
+            (root / "output" / "cli-resume" / "state.json").read_text("utf-8"))
+        assert len(state["chapters"]) == 3
