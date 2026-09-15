@@ -199,7 +199,12 @@ def parse_world_rules(markdown: str) -> tuple[str, ...]:
     return tuple(rules)
 
 
-_CHAPTER_HEADING = re.compile(r"^#{2,4}\s*chapter\s+(\d+)\s*[—\-:–]?\s*(.*)$", re.IGNORECASE)
+# A model asked for "### Chapter N — Title" will sometimes answer with
+# "**Chapter N: Title**" instead. Both are a chapter heading to a reader, and
+# rejecting the second killed the run with "no parseable chapter entries".
+_CHAPTER_HEADING = re.compile(
+    r"^(?:#{2,4}\s*|\*\*\s*)chapter\s+(\d+)\s*[—\-:–]?\s*(.*?)\s*\**\s*$",
+    re.IGNORECASE)
 _FIELD = re.compile(r"^\s*[-*+]\s*\*\*(?P<key>[^:*]+):?\*\*:?\s*(?P<value>.*)$")
 
 

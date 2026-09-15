@@ -79,11 +79,11 @@ totals below are the actual ones:
 
 ```
 NovaForge: A deep-space salvage crew finds a derelict that remembers th  [hard-scifi, 3 chapters]
-  profile tiny     config 58b26878bd29
+  profile tiny     config 974097797f7b
   spec    .../specs/flow.yaml
   engine  mock / claude-opus-5
   length  300-550 words per chapter, wrapped at 64
-  gate    continuity+science+length >= 8, 2 rewrites allowed, on_fail=accept_with_warnings
+  gate    continuity+science+length+chatter >= 8, 2 rewrites allowed, on_fail=accept_with_warnings
   budget  $5.00, 120 calls, 1,000,000 tokens
   output  ...\output\a-deep-space-salvage-crew-finds-a-derelict-that
 
@@ -96,12 +96,12 @@ NovaForge: A deep-space salvage crew finds a derelict that remembers th  [hard-s
   [3/6] FLOW-3 outline -> plot_architect
     wrote outline.md (3 chapters, tension 3, 6, 9)
   [4/6] FLOW-4 chapters -> chapter_writer
-    gate continuity+science+length >= 8, max 3 drafts, on_fail=accept_with_warnings
-    ch01 draft 1: continuity 10/10, length 10/10, science 10/10 -> accept
-    ch02 draft 1: continuity 6/10, length 10/10, science 10/10 -> retry
+    gate continuity+science+length+chatter >= 8, max 3 drafts, on_fail=accept_with_warnings
+    ch01 draft 1: chatter 10/10, continuity 10/10, length 10/10, science 10/10 -> accept
+    ch02 draft 1: chatter 10/10, continuity 6/10, length 10/10, science 10/10 -> retry
       [continuity] name-drift: 'Kassar'
-    ch02 draft 2: continuity 10/10, length 10/10, science 10/10 -> accept
-    ch03 draft 1: continuity 10/10, length 10/10, science 10/10 -> accept
+    ch02 draft 2: chatter 10/10, continuity 10/10, length 10/10, science 10/10 -> accept
+    ch03 draft 1: chatter 10/10, continuity 10/10, length 10/10, science 10/10 -> accept
     3/3 chapters approved, 0 accepted with warnings
   [5/6] FLOW-5 style -> style_editor
     wrote 3 final chapters, no content changed
@@ -111,8 +111,8 @@ NovaForge: A deep-space salvage crew finds a derelict that remembers th  [hard-s
     wrote dist/book.pdf — 7 pages, A5, 10pt Helvetica, 7,356 bytes
 
   chapters  3 approved
-  calls     16  (9,397 in / 5,616 out tokens)
-  cost      $0.1874
+  calls     16  (9,492 in / 5,610 out tokens)
+  cost      $0.1877
   audit     chain intact (31 rows, hash chain)
   done. artefacts in ...\output\a-deep-space-salvage-crew-finds-a-derelict-that\dist
 ```

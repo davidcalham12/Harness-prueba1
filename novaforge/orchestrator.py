@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -25,6 +25,7 @@ from .config import Config
 from .domain.models import Usage
 from .engines.base import Completion, Engine, Request
 from .pricing import cost_usd
+from .response import HEADING_KINDS, clean_response, find_chatter
 from .security.audit import (
     AuditChain,
     Budget,
@@ -183,6 +184,15 @@ class Orchestrator:
                             input_tokens=completion.usage.input_tokens,
                             output_tokens=completion.usage.output_tokens)
 
+        # A model's answer is not the same as its text: it arrives wrapped in a
+        # fence, or introduced by a sentence the prompt never asked for. The
+        # mechanical part is removed here, once, rather than in each stage.
+        cleaned = clean_response(completion.text,
+                                 expect_heading=request.kind in HEADING_KINDS)
+        chatter = find_chatter(cleaned)
+        if cleaned != completion.text:
+            completion = replace(completion, text=cleaned)
+
         hits = scan_for_injection(completion.text)
         if hits:
             self._injection_hits += len(hits)
@@ -201,10 +211,13 @@ class Orchestrator:
                                  completion.usage.output_tokens),
             "elapsed_s": round(time.time() - started, 4),
             "injection_findings": hits,
+            "chatter": chatter,
         })
+        self.last_chatter = chatter
         return completion
 
     _current_stage_id = "-"
+    last_chatter: list = []
 
     # -- the run ---------------------------------------------------------
 

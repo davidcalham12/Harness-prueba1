@@ -34,7 +34,7 @@ NovaForge: A deep-space salvage crew finds a derelict that remembers th  [hard-s
   spec    specs/flow.yaml
   engine  mock / claude-opus-5
   length  300-550 words per chapter, wrapped at 64
-  gate    continuity+science+length >= 8, 2 rewrites allowed, on_fail=accept_with_warnings
+  gate    continuity+science+length+chatter >= 8, 2 rewrites allowed, on_fail=accept_with_warnings
   budget  $5.00, 120 calls, 1,000,000 tokens
 
   [1/6] FLOW-1 worldbuild -> worldbuilder
@@ -131,7 +131,7 @@ refuses to start if a skill and `flow.yaml` disagree.
 ## Try it
 
 ```bash
-python -m pytest -q                  # 674 tests, offline, ~26 seconds
+python -m pytest -q                  # 738 tests, offline, ~45 seconds
 python tools/check_specs.py          # specs, skills and tests still agree
 python -m novaforge new "your premise here" --profile tiny --engine mock
 python -m novaforge status <slug>

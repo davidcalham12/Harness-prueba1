@@ -45,7 +45,9 @@ def review(critic, text, *, cast=CAST, rules=RULES):
 
 class TestRegistry:
     def test_the_gate_names_kinds_not_agents(self):
-        assert set(CRITICS) == {"continuity", "science", "length"}
+        """Two are model-shaped, two are pure code: `length` is arithmetic
+        and `chatter` is pattern matching. The gate does not care which."""
+        assert set(CRITICS) == {"continuity", "science", "length", "chatter"}
 
     def test_building_preserves_the_configured_order(self):
         built = build_critics(["length", "continuity"])

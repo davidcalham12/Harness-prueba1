@@ -6,6 +6,7 @@
       "lines": 42,
       "number": 1,
       "scores": {
+        "chatter": 10,
         "continuity": 10,
         "length": 10,
         "science": 10
@@ -19,6 +20,7 @@
       "lines": 43,
       "number": 2,
       "scores": {
+        "chatter": 10,
         "continuity": 10,
         "length": 10,
         "science": 10
@@ -32,6 +34,7 @@
       "lines": 43,
       "number": 3,
       "scores": {
+        "chatter": 10,
         "continuity": 10,
         "length": 10,
         "science": 10
@@ -49,7 +52,7 @@
     "FLOW-5",
     "FLOW-6"
   ],
-  "config_hash": "58b26878bd29",
+  "config_hash": "974097797f7b",
   "cost_usd": 0.18771,
   "input_tokens": 9492,
   "notes": [],

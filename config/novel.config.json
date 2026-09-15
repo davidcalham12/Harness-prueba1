@@ -35,7 +35,7 @@
   },
 
   "quality_gate": {
-    "critics": ["continuity", "science", "length"],
+    "critics": ["continuity", "science", "length", "chatter"],
     "threshold": 8,
     "max_revisions": 2,
     "aggregate": "min",

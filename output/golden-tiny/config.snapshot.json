@@ -1,5 +1,5 @@
 {
-  "config_hash": "58b26878bd29",
+  "config_hash": "974097797f7b",
   "layers": [
     "config/novel.config.json",
     "config/profiles/tiny.json",
@@ -130,7 +130,8 @@
       "critics": [
         "continuity",
         "science",
-        "length"
+        "length",
+        "chatter"
       ],
       "max_revisions": 2,
       "on_fail": "accept_with_warnings",

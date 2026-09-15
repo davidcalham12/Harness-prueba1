@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Mapping
 
 from .base import Critic, CriticContext
+from .chatter import ChatterCritic
 from .continuity import ContinuityCritic
 from .length import LengthCritic
 from .science import ScienceCritic
@@ -27,6 +28,7 @@ class UnknownCritic(KeyError):
 
 
 CRITICS: Mapping[str, type[Critic]] = {
+    "chatter": ChatterCritic,
     "continuity": ContinuityCritic,
     "science": ScienceCritic,
     "length": LengthCritic,

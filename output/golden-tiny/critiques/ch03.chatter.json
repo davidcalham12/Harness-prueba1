@@ -1,0 +1,23 @@
+{
+  "chapter": 3,
+  "critic": "chatter",
+  "drafts": 1,
+  "final": {
+    "critic": "chatter",
+    "detail": {
+      "paragraphs_examined": "first and last two"
+    },
+    "findings": [],
+    "score": 10
+  },
+  "iterations": [
+    {
+      "critic": "chatter",
+      "detail": {
+        "paragraphs_examined": "first and last two"
+      },
+      "findings": [],
+      "score": 10
+    }
+  ]
+}

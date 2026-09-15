@@ -185,7 +185,7 @@ class TestAudit:
         assert sum(1 for r in rows if r["event"] == "stage_complete") == 6
         assert sum(1 for r in rows if r["event"] == "bible_write") == 4
 
-    def test_the_gate_records_why_each_chapter_was_accepted(self, completed):
+    def test_the_gate_records_why_each_chapter_was_accepted(self, completed, config):
         """Without these rows the log says which calls happened but not why a
         chapter was accepted, which stops one question short of reconstructing
         the run."""
@@ -196,7 +196,7 @@ class TestAudit:
         assert [r["verdict"] for r in gate] == ["accept", "retry", "accept", "accept"]
         for row in gate:
             assert row["flow_id"] == "FLOW-4"
-            assert set(row["scores"]) == {"continuity", "science", "length"}
+            assert set(row["scores"]) == set(config.get("quality_gate.critics"))
             assert row["aggregate_score"] == min(row["scores"].values())
             assert (row["aggregate_score"] >= row["threshold"]) == (row["verdict"] != "retry")
 
