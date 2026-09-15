@@ -118,7 +118,7 @@ refuses to start if a skill and `flow.yaml` disagree.
 ## Try it
 
 ```bash
-python -m pytest -q                  # 551 tests, offline, ~18 seconds
+python -m pytest -q                  # 626 tests, offline, ~21 seconds
 python tools/check_specs.py          # specs, skills and tests still agree
 python -m novaforge new "your premise here" --profile tiny --engine mock
 python -m novaforge status <slug>
@@ -195,6 +195,7 @@ class and one entry in `novaforge/critics/__init__.py`, plus its name in
 
 ```
 novaforge/
+  composition.py      the only place concrete classes are wired together
   orchestrator.py     loads flow.yaml and runs it
   agents.py           reads SKILL.md files
   config.py           layers base → profile → --config → flags
@@ -204,7 +205,7 @@ novaforge/
   critics/            continuity, science, length
   engines/            mock (deterministic, free); anthropic is not yet written
   export/             markdown and pdf, both written from scratch
-  security/           sandbox, prompting, audit
+  security/           validation, secrets, sandbox, prompting, escaping, audit
   spec/               a YAML parser for the subset flow.yaml uses
 ```
 
@@ -216,10 +217,10 @@ kind of documentation:
 - **`--engine anthropic` is not implemented.** Everything runs on the mock. The
   budget guard and the credential handling that a paid run needs are partly in
   place; the engine itself is not.
-- **One of six security layers is missing.** SEC-1 to SEC-4 and SEC-6 exist and
-  are tested. SEC-5 has no module of its own: the escaping the shipping path
-  needs lives inside `export/markdown.py` and `export/pdf.py`, and the
-  `xml_escape` and `svg_text` that `SECURITY.md` describes do not exist.
+- **Two escapers are kept but unused.** All six security layers ship, but
+  `xml_escape` and `svg_text` in SEC-5 are on no code path: CHG-001 removed the
+  EPUB and the SVG cover. They are tested anyway, because an untested escaper
+  is worse than none, and a test asserts they really are unused.
 - **The two critics are scored in code, not by a model.** `docs/novaforge_flow.mermaid`
   shows them as model-driven, and their prompts exist; this build evaluates them
   deterministically so a mock run stays reproducible and `output/golden-tiny/`
@@ -227,8 +228,6 @@ kind of documentation:
   reports it rather than hiding it.
 - **Some documents referenced elsewhere do not exist**, including
   `specs/acceptance.md`, `specs/CONFIG-SPEC.md` and `tools/publish.ps1`.
-- **`novaforge/composition.py` does not exist.** `cli.py` currently does two
-  jobs: parsing flags and building the object graph.
 
 ## Where to read next
 

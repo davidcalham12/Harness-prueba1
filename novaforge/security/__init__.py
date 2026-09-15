@@ -1,14 +1,23 @@
 """The security layers, one module each. See `SECURITY.md` for why each exists.
 
-Five of the six ship: SEC-1 (`validation`), SEC-2 (`secrets`), SEC-3
-(`sandbox`), SEC-4 (`prompting`) and SEC-6 (`audit`). SEC-5 is named in
-`SECURITY.md` and has no module yet - the escaping the shipping path needs
-lives inside `export/markdown.py` and `export/pdf.py` instead, and its
-absence is stated there and in `SECURITY.md` rather than silently bypassed.
+All six ship: SEC-1 (`validation`), SEC-2 (`secrets`), SEC-3 (`sandbox`),
+SEC-4 (`prompting`), SEC-5 (`escaping`) and SEC-6 (`audit`).
+
+Two functions in SEC-5 - `xml_escape` and `svg_text` - are tested but not on
+the shipping path, because CHG-001 removed the EPUB and the SVG cover. That is
+stated in their docstrings rather than left to be discovered.
 """
 
 from __future__ import annotations
 
+from .escaping import (
+    markdown_prose,
+    pdf_string,
+    safe_zip_name,
+    strip_control,
+    svg_text,
+    xml_escape,
+)
 from .prompting import (
     BIBLE_WRITERS,
     UNTRUSTED_CLAUSE,
@@ -28,6 +37,12 @@ __all__ = [
     "MissingCredential",
     "Redactor",
     "ValidationError",
+    "markdown_prose",
+    "pdf_string",
+    "safe_zip_name",
+    "strip_control",
+    "svg_text",
+    "xml_escape",
     "load_api_key",
     "validate_premise",
     "validate_slug",

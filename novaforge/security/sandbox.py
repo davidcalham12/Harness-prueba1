@@ -25,6 +25,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
+from .escaping import strip_control
+
 __all__ = ["SandboxViolation", "Workspace"]
 
 # Reserved on Windows in every directory, with or without an extension.
@@ -127,7 +129,23 @@ class Workspace:
     # -- writes ----------------------------------------------------------
 
     def write_text(self, relative: str, *, content: str) -> Path:
-        """Atomically write ``content``. Parents are created as needed."""
+        """Atomically write ``content``. Parents are created as needed.
+
+        Control and invisible-format characters are stripped on the way out
+        (SEC-5.3). This is the single place every text artefact passes
+        through, which is the only way "stripped from every artefact string"
+        can be a fact rather than a habit each caller has to remember.
+        """
+        if not isinstance(content, str):
+            # Checked before anything is stripped or opened. `strip_control`
+            # treats None as the empty string, which would turn a caller's bug
+            # into a silently truncated artefact - the exact failure the atomic
+            # write exists to prevent.
+            raise TypeError(
+                f"content must be a string, got {type(content).__name__} "
+                f"(writing {relative!r})"
+            )
+        content = strip_control(content)
         target = self.resolve(relative)
         target.parent.mkdir(parents=True, exist_ok=True)
         handle, tmp_name = tempfile.mkstemp(

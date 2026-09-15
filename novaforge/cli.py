@@ -3,10 +3,13 @@
 Three commands: ``new`` starts a run, ``resume`` continues one, ``status``
 reports on one without touching it.
 
-The CLI's own job is small on purpose - parse flags into a config overlay, wire
-the pieces together, print progress. Every number it accepts is a config key,
-so ``--chapters 3`` and editing ``novel.chapters`` in JSON are the same change
-arriving by different routes (CFG-4).
+This module parses flags, turns exceptions into exit codes, and prints. It
+wires nothing: :mod:`novaforge.composition` is the composition root, so a
+caller that is not a CLI can start a run without going through ``argparse``.
+
+Every number a flag accepts is a config key, so ``--chapters 3`` and editing
+``novel.chapters`` in JSON are the same change arriving by different routes
+(CFG-4).
 """
 
 from __future__ import annotations
@@ -16,20 +19,14 @@ import json
 import sys
 from pathlib import Path
 
-from .agents import AgentError, load_agents
-from .config import Config, ConfigError, load_config, package_root
-from .engines import EngineError, build_engine
-from .orchestrator import (
-    BudgetExceeded,
-    Orchestrator,
-    StageFailed,
-    derive_slug,
-    reset_run,
-)
+from .agents import AgentError
+from .composition import build_run, redactor_for_output, resolve_config
+from .config import ConfigError, package_root
+from .engines import EngineError
+from .orchestrator import BudgetExceeded, StageFailed, reset_run
 from .pricing import DEFAULT_MODEL, is_known_model
 from .security.sandbox import SandboxViolation, Workspace
-from .security.secrets import Redactor
-from .security.validation import ValidationError, validate_premise, validate_slug
+from .security.validation import ValidationError
 from .spec.flow import SpecError, load_flow
 
 __all__ = ["main", "run_cli"]
@@ -161,134 +158,107 @@ def _summarise(report, state, workspace, orchestrator=None) -> None:
 
 
 def _run(args, *, resume: bool) -> int:
+    """Parse flags into values, hand them to the composition root, print."""
     # SEC-2.2: every line the CLI prints, not just the ones the orchestrator
     # emits. The banner quotes the premise, which is user-supplied.
-    redactor = Redactor.from_env()
+    redactor = redactor_for_output()
     if getattr(args, "quiet", False):
-        report = lambda *_: None  # noqa: E731
+        def report(_line: str = "") -> None:
+            return None
     else:
-        report = lambda line="": print(redactor.scrub(str(line)))  # noqa: E731
-    root = package_root()
+        def report(line: str = "") -> None:
+            print(redactor.scrub(str(line)))
 
-    if resume:
-        # A resumed run must be the *same* novel, so the config is recovered
-        # from the snapshot the original run wrote rather than rebuilt from
-        # flags. Otherwise forgetting `--profile tiny` would silently ask to
-        # continue a three-chapter book as a twelve-chapter one.
-        snapshot_path = root / "output" / args.slug / "config.snapshot.json"
-        if not snapshot_path.exists():
-            print(f"no config snapshot at {snapshot_path}; cannot resume", file=sys.stderr)
-            return 1
-        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
-        config = Config(snapshot["resolved"], sources=tuple(snapshot.get("layers", ())))
-        if config.hash != snapshot.get("config_hash"):
-            print(f"config snapshot is inconsistent with its own hash; refusing to resume",
-                  file=sys.stderr)
-            return 1
-    else:
-        try:
-            config = load_config(
-                profile=getattr(args, "profile", None),
-                overlay_path=getattr(args, "config_path", None),
-                overrides=_overrides(args),
-                root=root,
-            )
-        except ConfigError as exc:
-            print(f"config error: {exc}", file=sys.stderr)
-            return 2
+    root = package_root()
+    slug = getattr(args, "slug", None)
+
+    try:
+        config = resolve_config(
+            profile=getattr(args, "profile", None),
+            overlay_path=getattr(args, "config_path", None),
+            overrides=_overrides(args),
+            root=root,
+            resume_slug=slug if resume else None,
+        )
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    except (ConfigError, ValueError) as exc:
+        print(f"config error: {exc}", file=sys.stderr)
+        return 2
 
     model = config.get("engine.model")
     if not is_known_model(model):
         report(f"  note: {model!r} is not in the pricing table; "
                f"costs are estimated at the {DEFAULT_MODEL} tier")
 
+    premise = getattr(args, "premise", "")
+    if resume:
+        state_path = root / "output" / slug / "state.json"
+        if not state_path.exists():
+            print(f"no run to resume at {state_path.parent}", file=sys.stderr)
+            return 1
+        premise = json.loads(state_path.read_text(encoding="utf-8")).get("premise", "")
+
     try:
-        spec = load_flow(root / "specs" / "flow.yaml", config=config)
+        run = build_run(
+            premise=premise,
+            config=config,
+            slug=slug,
+            engine_name=getattr(args, "engine", None),
+            root=root,
+            report=report,
+            # A resumed premise was validated when the run started; re-checking
+            # it would make a rule added later retroactively unresumable.
+            validate=not resume,
+        )
+    except ValidationError as exc:
+        print(f"invalid input: {exc}", file=sys.stderr)
+        return 2
     except SpecError as exc:
         print(f"spec error: {exc}", file=sys.stderr)
         return 2
-
-    engine_name = getattr(args, "engine", None) or config.get("engine.name")
-    try:
-        # Loaded before the workspace is touched: a contradictory skill should
-        # stop the run before it creates a directory, not three stages in.
-        agents = load_agents(root)
-        agents.check_against_flow(spec)
     except AgentError as exc:
         print(f"agent error: {exc}", file=sys.stderr)
         print("run tools/check_specs.py for the full picture", file=sys.stderr)
         return 2
-
-    try:
-        engine = build_engine(
-            engine_name,
-            model=model,
-            seed=config.get("engine.seed"),
-            inject_drift=config.get("engine.inject_drift"),
-        )
     except EngineError as exc:
         print(f"engine error: {exc}", file=sys.stderr)
         return 2
-
-    premise = getattr(args, "premise", "")
-    slug = getattr(args, "slug", None) or (args.slug if resume else None) or derive_slug(premise)
-
-    # SEC-1, before the workspace exists. The slug is the only path
-    # component in the program that comes from a human.
-    try:
-        slug = validate_slug(slug)
-        if not resume:
-            premise = validate_premise(premise)
-    except ValidationError as exc:
-        print(f"invalid input: {exc}", file=sys.stderr)
-        return 2
-    out_dir = root / "output" / slug
-
-    try:
-        workspace = Workspace(out_dir)
     except SandboxViolation as exc:
         print(f"workspace error: {exc}", file=sys.stderr)
         return 2
 
-    if resume:
-        if not workspace.exists("state.json"):
-            print(f"no run to resume at {out_dir}", file=sys.stderr)
-            return 1
-        premise = workspace.read_json("state.json").get("premise", "")
-    elif workspace.exists("state.json"):
+    if not resume and run.workspace.exists("state.json"):
         # The audit log is append-only, so a second `new` into the same slug
         # would describe two runs as one. Overwriting is a deliberate act.
         if not getattr(args, "force", False):
             print(
-                f"a run already exists at {out_dir}.\n"
-                f"  continue it:  novaforge resume {slug}\n"
-                f"  replace it:   novaforge new ... --slug {slug} --force",
+                f"a run already exists at {run.out_dir}.\n"
+                f"  continue it:  novaforge resume {run.slug}\n"
+                f"  replace it:   novaforge new ... --slug {run.slug} --force",
                 file=sys.stderr,
             )
             return 1
-        removed = reset_run(workspace, spec)
+        removed = reset_run(run.workspace, run.spec)
         report(f"  replaced the previous run ({len(removed)} paths removed)")
 
-    _header(report, config=config, spec=spec, engine=engine, slug=slug,
-            out_dir=out_dir, premise=premise)
+    _header(report, config=config, spec=run.spec, engine=run.engine,
+            slug=run.slug, out_dir=run.out_dir, premise=run.premise)
 
-    orchestrator = Orchestrator(
-        spec=spec, config=config, workspace=workspace, engine=engine,
-        premise=premise, slug=slug, report=report, agents=agents,
-    )
     try:
-        state = orchestrator.run(resume=resume)
+        state = run.execute(resume=resume)
     except BudgetExceeded as exc:
         print(f"\nstopped on a budget ceiling: {exc}", file=sys.stderr)
         print(f"raise it in the config or with --max-cost-usd / --max-calls, "
-              f"then: novaforge resume {slug}", file=sys.stderr)
+              f"then: novaforge resume {run.slug}", file=sys.stderr)
         return 3
     except StageFailed as exc:
         print(f"\nrun halted: {exc}", file=sys.stderr)
-        print(f"state saved; resume with: novaforge resume {slug}", file=sys.stderr)
+        print(f"state saved; resume with: novaforge resume {run.slug}", file=sys.stderr)
         return 1
 
-    _summarise(report, state, workspace, orchestrator)
+    _summarise(report, state, run.workspace, run.orchestrator)
     return 0
 
 

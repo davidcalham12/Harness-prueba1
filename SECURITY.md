@@ -5,11 +5,9 @@ under `tests/security/`. This document says *why* each layer exists and what
 it does not cover; the testable requirements are the `SEC-n.m` identifiers
 below, cited from the docstrings of the tests that cover them.
 
-**Five of the six are written and tested.** SEC-5 is the exception: the
-escaping the shipping path needs lives inside `export/markdown.py` and
-`export/pdf.py` rather than in a module of its own, and `xml_escape` and
-`svg_text` do not exist at all. It is marked below. A security document that
-reads as though everything in it ships is worse than one layer short.
+**All six are written and tested.** Two functions inside SEC-5 - `xml_escape`
+and `svg_text` - are tested but not on the shipping path, and say so; see that
+section for why they are kept.
 
 ## Threat model
 
@@ -100,9 +98,6 @@ reduces the risk; it does not eliminate it. This is why the Bible write guard
 is enforced in code rather than requested in a prompt.
 
 ## SEC-5 — Output sanitisation (`security/escaping.py`)
-
-> **NOT YET WRITTEN.** `novaforge/security/escaping.py` does not exist in
-> this build. What follows is the design, not a description of shipped code.
 
 Model-written text is embedded in formats with structural syntax of their own,
 and each failure is invisible on disk. An unescaped `)` inside a PDF literal

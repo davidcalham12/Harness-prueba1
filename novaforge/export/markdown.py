@@ -8,31 +8,19 @@ in the run report is the number of lines in the file.
 Model-written prose is embedded in a format with structural syntax of its own,
 so a paragraph that happens to begin ``## `` would silently become a chapter
 heading and the table of contents would then be wrong in a way nobody notices
-until print. :func:`markdown_prose` neutralises structure at the start of a
-prose line. That is SEC-5's job; this module carries the minimum of it that the
-shipping path needs.
+until print. That is SEC-5's job:
+:func:`novaforge.security.escaping.markdown_prose` neutralises structure at the
+start of a prose line, and this module calls it rather than carrying its own
+copy.
 """
 
 from __future__ import annotations
 
-import re
-
+from ..security.escaping import markdown_prose
 from ..textops import chapter_body, count_words, heading, paragraphs, wrap_paragraph
 from .base import ExportResult
 
-__all__ = ["MarkdownExporter", "markdown_prose"]
-
-_STRUCTURAL = re.compile(r"^(\s*)(#{1,6}\s|>\s|[-*+]\s|\d+\.\s|\|)")
-
-
-def markdown_prose(line: str) -> str:
-    """Neutralise Markdown structure at the start of a prose line (SEC-5.1)."""
-    match = _STRUCTURAL.match(line)
-    if not match:
-        return line
-    indent, token = match.group(1), match.group(2)
-    return f"{indent}\\{token.lstrip()}{line[match.end():]}"
-
+__all__ = ["MarkdownExporter"]
 
 class MarkdownExporter:
     """``dist/book.md`` - one file, wrapped, with a table of contents."""

@@ -122,7 +122,9 @@ class TestReset:
 class TestResumeCommand:
     def test_resume_without_a_run_is_refused(self, isolated, capsys):
         assert cli.main(["resume", "nope", "--quiet"]) == 1
-        assert "cannot resume" in capsys.readouterr().err.lower()
+        message = capsys.readouterr().err
+        assert "nothing to resume" in message
+        assert "nope" in message  # names the slug it looked for
 
     def test_resume_does_not_need_the_profile_repeated(self, isolated):
         cli.main(["new", PREMISE, "--profile", "tiny", "--slug", "g",

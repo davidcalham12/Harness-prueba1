@@ -10,10 +10,10 @@ fails if a stage names an agent with no skill, if a skill contradicts its spec,
 or if a declared requirement has no test citing it; and
 ``tests/test_agents.py`` asserts that no stage module contains a prompt.
 
-Start at :func:`novaforge.cli.main`, which is where the concrete classes are
-wired together today. Pulling that wiring into its own ``composition`` module
-is still to do - the CLI currently does two jobs, parsing flags and building
-the object graph.
+Start at :func:`novaforge.composition.build_run`, which is the only place
+concrete classes are wired together. :mod:`novaforge.cli` parses flags and
+turns exceptions into exit codes; it constructs nothing, so a caller that is
+not a command line can start a run without going through ``argparse``.
 """
 
 from __future__ import annotations

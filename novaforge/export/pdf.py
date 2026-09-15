@@ -13,10 +13,11 @@ because a terminal is monospaced; this one wraps by *width* because a page is
 not. The same chapter therefore has a different line count in the two files,
 which is correct.
 
-**Model-written text is escaped (SEC-5.2).** An unescaped ``)`` inside a PDF
-literal string does not corrupt one line - it ends the string early and
-corrupts every object after it, and the file simply fails to open. Everything
-outside printable ASCII is octal-encoded in WinAnsi.
+**Model-written text is escaped (SEC-5.2).** Every string written into the
+file goes through :func:`novaforge.security.escaping.pdf_string`. An unescaped
+``)`` does not corrupt one line - it ends the literal string early, every byte
+offset in the cross-reference table after it becomes wrong, and the file simply
+fails to open.
 """
 
 from __future__ import annotations
@@ -25,11 +26,12 @@ import zlib
 from dataclasses import dataclass, field
 from typing import Iterable, Sequence
 
+from ..security.escaping import pdf_string
 from ..textops import chapter_body, heading, paragraphs
 from .base import ExportResult
 from .metrics import string_width
 
-__all__ = ["PAGE_SIZES", "PdfExporter", "pdf_string"]
+__all__ = ["PAGE_SIZES", "PdfExporter"]
 
 MM_TO_PT = 72.0 / 25.4
 
@@ -42,30 +44,6 @@ PAGE_SIZES = {
 
 BODY_FONT = "Helvetica"
 HEAD_FONT = "Helvetica-Bold"
-
-
-def pdf_string(text: str) -> bytes:
-    """Escape ``text`` for a PDF literal string (SEC-5.2).
-
-    ``\\``, ``(`` and ``)`` are escaped; everything outside printable ASCII is
-    octal-encoded from its WinAnsi byte. A character with no WinAnsi code
-    becomes a bullet rather than being dropped, so a missing glyph is visible
-    on the page instead of silently changing the prose.
-    """
-    out = bytearray(b"(")
-    for char in text:
-        try:
-            code = char.encode("cp1252")[0]
-        except (UnicodeEncodeError, IndexError):
-            code = 0xB7  # middle dot
-        if code in (0x5C, 0x28, 0x29):  # \ ( )
-            out += b"\\" + bytes([code])
-        elif 32 <= code <= 126:
-            out.append(code)
-        else:
-            out += f"\\{code:03o}".encode("ascii")
-    out += b")"
-    return bytes(out)
 
 
 @dataclass
