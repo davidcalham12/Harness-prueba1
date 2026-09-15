@@ -14,8 +14,9 @@ place.
 
 ## 0a. Publishing
 
-The repository is <https://github.com/davidcalham12/Harness-prueba1>. Nothing has
-been pushed to it yet.
+The repository is <https://github.com/davidcalham12/Harness-prueba1>, and `main`
+is pushed to it. `origin` is configured and the local branch tracks it, so a
+plain `git push` works from here.
 
 One command does the whole handover. It runs the checks below **first**, plus a
 regeneration of `output/golden-tiny/`, and refuses to push if any of them fail:
@@ -26,8 +27,8 @@ regeneration of `output/golden-tiny/`, and refuses to push if any of them fail:
 
 `-Force` pushes despite failures and annotates the commit message to say which
 ones were failing. `-SkipGolden` skips the fixture check, `-NoPush` stops after
-the commit. There is no remote configured yet, so the first run will commit
-locally and tell you how to add one.
+the commit. If the remote is ever missing it commits locally and tells you how
+to add one rather than guessing a URL.
 
 ## 0. Which command to run
 
@@ -106,8 +107,8 @@ NovaForge: A deep-space salvage crew finds a derelict that remembers th  [hard-s
     wrote 3 final chapters, no content changed
   [6/6] FLOW-6 publish -> publisher
     wrote synopsis.md (183 words)
-    wrote dist/book.md — 3 chapters, 1,284 words, wrapped at 64 columns
-    wrote dist/book.pdf — 7 pages, A5, 10pt Helvetica, 6,861 bytes
+    wrote dist/book.md — 3 chapters, 1,270 words, wrapped at 64 columns
+    wrote dist/book.pdf — 7 pages, A5, 10pt Helvetica, 7,356 bytes
 
   chapters  3 approved
   calls     16  (9,397 in / 5,616 out tokens)

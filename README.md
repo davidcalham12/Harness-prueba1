@@ -51,8 +51,8 @@ NovaForge: A deep-space salvage crew finds a derelict that remembers th  [hard-s
     ch03 draft 1: continuity 10/10, length 10/10, science 10/10 -> accept
   ...
   [6/6] FLOW-6 publish -> publisher
-    wrote dist/book.md — 3 chapters, 1,284 words, wrapped at 64 columns
-    wrote dist/book.pdf — 7 pages, A5, 10pt Helvetica, 6,861 bytes
+    wrote dist/book.md — 3 chapters, 1,270 words, wrapped at 64 columns
+    wrote dist/book.pdf — 7 pages, A5, 10pt Helvetica, 7,356 bytes
 
   audit     chain intact (31 rows, hash chain)
 ```
@@ -131,7 +131,7 @@ refuses to start if a skill and `flow.yaml` disagree.
 ## Try it
 
 ```bash
-python -m pytest -q                  # 654 tests, offline, ~26 seconds
+python -m pytest -q                  # 674 tests, offline, ~26 seconds
 python tools/check_specs.py          # specs, skills and tests still agree
 python -m novaforge new "your premise here" --profile tiny --engine mock
 python -m novaforge status <slug>

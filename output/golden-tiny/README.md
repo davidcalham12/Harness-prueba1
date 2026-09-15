@@ -109,7 +109,7 @@ own change record rather than sweeping it into an unrelated commit.
 
 `dist/book.pdf` is seven A5 pages of 10pt Helvetica, written by
 `novaforge/export/pdf.py` with no dependency: a base-14 font needs no
-embedding, so the whole book is under 7KB.
+embedding, so the whole book is a little over 7KB.
 
 It does not match `dist/book.md` line for line, and should not. Markdown wraps
 at a character count because a terminal and a diff are monospaced; the PDF
