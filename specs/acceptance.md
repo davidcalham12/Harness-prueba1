@@ -108,6 +108,11 @@ Stated so that the criteria above are not read as covering more than they do:
 
 - `--engine anthropic` is not implemented. Every criterion here is verified
   against the mock engine only.
+- **The mock engine ignores the premise**, so no criterion above is evidence
+  that this harness turns a premise into a novel. Two opposite premises give
+  byte-identical characters, outline and chapters. The criteria cover the
+  machinery — the gate, the context policy, the budget, the audit — and the
+  claim the machinery exists to serve is the one thing untested.
 - The two critics are scored in code rather than by a model, which is what
   makes ACC-6 possible. Their skills declare `shipping: false`.
 - The manuscript in `dist/` is not redacted. SEC-1 refuses a premise carrying a

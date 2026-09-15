@@ -1,5 +1,21 @@
 """A deterministic, free engine that produces text of the right *shape*.
 
+**It ignores the premise.** Ask it for a medieval blacksmith and you get the
+same deep-space salvage crew as everyone else: the cast, the timeline, the
+mysteries, the outline and every chapter are byte-identical whatever you type.
+The premise appears in `bible/world.md` and the synopsis because those quote it
+verbatim, and nowhere else.
+
+That is the design, not a defect, and the reason is narrow: `output/golden-tiny/`
+is a fixture that a fresh run must reproduce byte for byte, and an engine whose
+output depended on its input could not be one. A premise-sensitive mock would be
+a worse mock and still not a writer.
+
+It follows that **a mock run demonstrates the pipeline, not the writing**. The
+gate, the context policy, the budget guard and the audit chain are all real and
+all exercised. Whether this harness turns *your* premise into *your* novel is a
+question only `--engine anthropic` can answer, and that engine is not written.
+
 It is not trying to write well. It is trying to be a faithful stand-in for the
 parts of a real run that the harness depends on: artefacts with the structure
 the parsers expect, chapters inside the configured length band, and the same
@@ -30,7 +46,7 @@ from typing import Any, Mapping, Sequence
 from ..domain.models import Usage
 from .base import Completion, EngineError, Request
 
-__all__ = ["MockEngine"]
+__all__ = ["MockEngine", "_SENTENCE_BREAK"]
 
 _CAST = (
     ("Mara Kassab", "salvage pilot", ("steady", "secretive")),
@@ -93,6 +109,9 @@ _ADJ = (
     "cold", "unlit", "frost-rimed", "patient", "narrow", "scorched", "borrowed",
     "sealed", "humming", "wrong", "familiar", "unlabelled", "still", "shallow",
 )
+# One definition, used by the generator and by the tests that check it.
+_SENTENCE_BREAK = r"(?<=[.!?])\s+|(?<=[.!?]”)\s+"
+
 _VERBS = ("checked", "braced against", "counted", "distrusted", "listened to",
           "logged", "traced", "avoided", "reopened", "measured")
 
@@ -106,15 +125,25 @@ _SENTENCES = (
     "{b} wanted to go back. {a} wanted to know why the {noun} was {adj}.",
     "The {adj} {noun} was warm, which meant something aboard was still spending power.",
     "{a} marked the {noun} on the drift compass and did not explain the mark.",
-    "“It knows the route,” {b} said. “It should not know the route.”",
+    "“It knows the route,” {b} said. “A {noun} does not learn a route.”",
     "The {noun} had been opened from the inside, and then closed the same way.",
     "{b} counted the {noun}s aloud, and stopped at a number that was too high.",
-    "Nothing outside the hull made a sound, which was the only reassuring thing about it.",
+    "Nothing outside the {noun} made a sound, which was the only reassuring thing about it.",
     "{a} thought about the contract, and about how little of it had been in writing.",
-    "The {adj} {noun} held. That was all anyone could ask of it.",
+    "The {adj} {noun} held, which was all anyone could ask of a {noun2} that old.",
     "{b} logged the discrepancy, then logged that they had logged it.",
     "The lamps were {adj}, and the corridor went on further than the deck plan said.",
     "{a} had been aboard eleven minutes and already distrusted the {noun}.",
+    "{b} asked what the {noun} was for. {a} had no answer worth saying aloud.",
+    "The {noun} was labelled in a hand {a} did not recognise, and the label was recent.",
+    "{a} {verb} the {noun2} again, more slowly, and liked it less the second time.",
+    "Between the {adj} {noun} and the {noun2} there was a gap the drawings did not allow for.",
+    "{b} said the {noun} was fine. {b} said it twice, which was once more than necessary.",
+    "The air tasted of the {noun}, which meant the seal had been {adj2} for a while.",
+    "{a} wrote the number down rather than remember it, and did not say why.",
+    "Every {noun} on this deck had been replaced, and none of the replacements matched.",
+    "{b} reached for the {noun} and stopped, hand open, for longer than the moment deserved.",
+    "The {adj} {noun} was exactly where the manifest said, which by now felt like a warning.",
 )
 
 _TITLES = (
@@ -349,9 +378,36 @@ class MockEngine:
         words = 0
         paragraph: list[str] = []
         guard = 0
-        while words < target and guard < 400:
+        # A shuffled deck rather than independent draws. Picking at random each
+        # time meant a 35-sentence chapter from an 18-template pool repeated
+        # constantly - in one golden chapter the same sentence appeared twice in
+        # a row, which makes the whole demo look broken whatever the harness is
+        # actually doing. Dealing from a deck uses every template once before
+        # any of them comes round again.
+        deck: list[str] = []
+        emitted: set[str] = set()
+        rejected = 0
+        while words < target and guard < 2000:
             guard += 1
-            sentence = self._fill(rng.choice(_SENTENCES), names, rng)
+            if not deck:
+                deck = list(_SENTENCES)
+                rng.shuffle(deck)
+            sentence = self._fill(deck.pop(), names, rng)
+            # Compared sentence by sentence, not template by template: several
+            # templates are two sentences, and the second can repeat on its own
+            # while the pair as a whole looks new.
+            # A closing quote only ends a sentence when punctuation precedes
+            # it. Splitting on the quote alone cuts “It knows the route,” in
+            # half and puts a slotless fragment into `emitted`.
+            parts = [p for p in re.split(_SENTENCE_BREAK, sentence) if p]
+            # Length is a hard requirement and novelty is best-effort. At the
+            # `full` profile a 200-sentence chapter exhausts the combinations,
+            # and a chapter that came out short to stay varied would fail the
+            # gate for the wrong reason.
+            if any(p in emitted for p in parts) and rejected < 200:
+                rejected += 1
+                continue
+            emitted.update(parts)
             paragraph.append(sentence)
             words += len(sentence.split())
             if len(paragraph) >= sentences_per_para:

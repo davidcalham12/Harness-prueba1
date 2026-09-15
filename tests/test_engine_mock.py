@@ -14,13 +14,19 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from collections import Counter
 
 import pytest
 
 from novaforge.engines import EngineError, build_engine
 from novaforge.engines.base import Request
 from novaforge.engines.mock import MockEngine, _drifted
-from novaforge.textops import count_words, parse_characters, parse_world_rules
+from novaforge.textops import (
+    chapter_body,
+    count_words,
+    parse_characters,
+    parse_world_rules,
+)
 
 NAMES = ["Mara Kassab", "Ilo Vega"]
 
@@ -113,6 +119,64 @@ class TestArtefactShapes:
     def test_an_unknown_task_kind_is_refused(self, engine):
         with pytest.raises(EngineError, match="no generator"):
             ask(engine, "haiku")
+
+
+class TestVariety:
+    """The mock is not trying to write well, but it must not look broken.
+
+    Before this was fixed, picking a template at random each time meant the
+    same sentence appeared eight times in a three-chapter book, twice of them
+    back to back in the same paragraph. A reader seeing that concludes the
+    harness is broken, whatever it is actually doing.
+    """
+
+    @staticmethod
+    def sentences(text):
+        import re
+
+        from novaforge.engines.mock import _SENTENCE_BREAK
+
+        flat = " ".join(chapter_body(text).split())
+        return [s.strip() for s in re.split(_SENTENCE_BREAK, flat)
+                if s and len(s.split()) > 4]
+
+    @pytest.mark.parametrize("target", [420, 1150, 2000, 2700])
+    def test_no_sentence_repeats_within_a_chapter(self, engine, target):
+        """Checked at every profile's length. The `full` profile is the one
+        that matters: a 190-sentence chapter exhausts the combinations, and
+        that is where an earlier fix still left eleven repeats."""
+        text = ask(engine, "chapter", chapter=1, iteration=1,
+                   target_words=target, names=NAMES)
+        lines = self.sentences(text)
+        duplicates = [s for s, n in Counter(lines).items() if n > 1]
+        assert duplicates == [], duplicates
+
+    def test_no_sentence_ever_follows_itself(self, engine):
+        lines = self.sentences(ask(engine, "chapter", chapter=1, iteration=1,
+                                   target_words=2700, names=NAMES))
+        assert not [a for a, b in zip(lines, lines[1:]) if a == b]
+
+    def test_every_template_renders_differently_each_time(self):
+        """A template with no placeholder renders identically for ever, so it
+        can only appear once per chapter and then repeats across chapters.
+        Each half of a two-sentence template needs a slot too."""
+        import re
+
+        from novaforge.engines.mock import _SENTENCE_BREAK, _SENTENCES
+
+        for template in _SENTENCES:
+            for part in re.split(_SENTENCE_BREAK, template):
+                if part and len(part.split()) > 3:
+                    assert "{" in part, template
+
+    def test_variety_never_costs_length(self, engine):
+        """Length is a hard requirement and novelty is best-effort. A chapter
+        that came out short to stay varied would fail the gate for the wrong
+        reason."""
+        for target in (420, 2700):
+            words = count_words(ask(engine, "chapter", chapter=1, iteration=1,
+                                    target_words=target, names=NAMES))
+            assert target <= words <= target * 1.15
 
 
 class TestDrift:

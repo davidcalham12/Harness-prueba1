@@ -7,7 +7,7 @@
     "detail": {
       "lines": 43,
       "paragraphs": 10,
-      "words": 434,
+      "words": 423,
       "wrap_width": 64
     },
     "findings": [],
@@ -17,9 +17,9 @@
     {
       "critic": "length",
       "detail": {
-        "lines": 43,
-        "paragraphs": 11,
-        "words": 426,
+        "lines": 42,
+        "paragraphs": 10,
+        "words": 422,
         "wrap_width": 64
       },
       "findings": [],
@@ -30,7 +30,7 @@
       "detail": {
         "lines": 43,
         "paragraphs": 10,
-        "words": 434,
+        "words": 423,
         "wrap_width": 64
       },
       "findings": [],

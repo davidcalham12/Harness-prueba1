@@ -5,6 +5,23 @@ harness produces without running anything: the Story Bible, the outline, every
 chapter draft, **the failing first draft of chapter 2 and the verdict that
 rejected it**, the audit log, and `dist/book.md`.
 
+## What this is not
+
+**The prose here has nothing to do with the premise on the command line.** The
+mock engine ignores it. Run the same command with "a medieval blacksmith
+discovers her forge can reforge memories" and `bible/characters.md`,
+`outline.md` and every chapter come out byte-identical to what is in this
+directory. Only `bible/world.md` and `synopsis.md` differ, because they quote
+the premise verbatim in one line each.
+
+That is what makes this directory a fixture: a run that reproduces byte for
+byte cannot also respond to its input.
+
+So read what follows as **evidence that the pipeline works** — the gate
+rejecting a draft, the length band holding, the audit chain intact — and not
+as a sample of what the harness would write for you. That sample does not
+exist yet; `--engine anthropic` is not implemented.
+
 ## How it was generated
 
 ```bash

@@ -3,7 +3,7 @@
   "chapters": [
     {
       "iterations": 1,
-      "lines": 44,
+      "lines": 42,
       "number": 1,
       "scores": {
         "continuity": 10,
@@ -12,7 +12,7 @@
       },
       "status": "approved",
       "warnings": [],
-      "words": 423
+      "words": 422
     },
     {
       "iterations": 2,
@@ -25,11 +25,11 @@
       },
       "status": "approved",
       "warnings": [],
-      "words": 434
+      "words": 423
     },
     {
       "iterations": 1,
-      "lines": 41,
+      "lines": 43,
       "number": 3,
       "scores": {
         "continuity": 10,
@@ -38,7 +38,7 @@
       },
       "status": "approved",
       "warnings": [],
-      "words": 427
+      "words": 425
     }
   ],
   "completed_stages": [
@@ -50,10 +50,10 @@
     "FLOW-6"
   ],
   "config_hash": "58b26878bd29",
-  "cost_usd": 0.187385,
-  "input_tokens": 9397,
+  "cost_usd": 0.18771,
+  "input_tokens": 9492,
   "notes": [],
-  "output_tokens": 5616,
+  "output_tokens": 5610,
   "premise": "A deep-space salvage crew finds a derelict that remembers them",
   "slug": "golden-tiny",
   "stage": "complete"

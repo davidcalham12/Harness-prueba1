@@ -13,6 +13,19 @@ python -m novaforge new "A deep-space salvage crew finds a derelict that remembe
 
 No dependencies. Python 3.10 or newer, and that is the whole list.
 
+> **Read this before the demo output below.** The mock engine **ignores your
+> premise**. Ask it for a medieval blacksmith and you get the same deep-space
+> salvage crew as everyone else — the cast, the outline and every chapter are
+> identical whatever you type. That is deliberate: `output/golden-tiny/` is a
+> fixture a fresh run must reproduce byte for byte, and an engine whose output
+> depended on its input could not be one.
+>
+> So a mock run shows you **the pipeline working, not the writing**. Everything
+> below about the gate, the context policy and the audit chain is real and
+> exercised. Whether this harness turns *your* premise into *your* novel is a
+> question only `--engine anthropic` can answer, and that engine is not written
+> yet.
+
 ## What a run looks like
 
 ```
@@ -118,7 +131,7 @@ refuses to start if a skill and `flow.yaml` disagree.
 ## Try it
 
 ```bash
-python -m pytest -q                  # 644 tests, offline, ~25 seconds
+python -m pytest -q                  # 654 tests, offline, ~26 seconds
 python tools/check_specs.py          # specs, skills and tests still agree
 python -m novaforge new "your premise here" --profile tiny --engine mock
 python -m novaforge status <slug>
@@ -214,9 +227,11 @@ novaforge/
 Stated plainly, because a README that implies otherwise is the most expensive
 kind of documentation:
 
-- **`--engine anthropic` is not implemented.** Everything runs on the mock. The
-  budget guard and the credential handling that a paid run needs are partly in
-  place; the engine itself is not.
+- **`--engine anthropic` is not implemented**, so the central claim — that this
+  turns a premise into a novel — is the one thing here that has never been
+  demonstrated. The mock ignores the premise by design, so no mock run can
+  demonstrate it. Everything *around* that claim is tested; the claim itself
+  waits on an API key.
 - **Two escapers are kept but unused.** All six security layers ship, but
   `xml_escape` and `svg_text` in SEC-5 are on no code path: CHG-001 removed the
   EPUB and the SVG cover. They are tested anyway, because an untested escaper

@@ -116,6 +116,11 @@ NovaForge: A deep-space salvage crew finds a derelict that remembers th  [hard-s
   done. artefacts in ...\output\a-deep-space-salvage-crew-finds-a-derelict-that\dist
 ```
 
+**The premise does not reach the prose.** The mock engine ignores it; the same
+chapters come out whatever you type. What this run demonstrates is the
+pipeline, not the writing. See `novaforge/engines/mock.py` for why, and
+`specs/acceptance.md` § ACC-11 for what that means the criteria do not cover.
+
 Two lines matter most. `ch02 draft 1 ... -> retry` is the critique loop firing.
 `length 10/10` on every chapter is the Length Critic confirming that the prose
 came out the size the config asked for - and if the mock ever drifts out of

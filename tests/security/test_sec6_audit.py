@@ -241,6 +241,29 @@ class TestBudgetInARun:
             run_novel(tmp_path, slug="cap3", overrides={"budget": {"max_calls": 4}})
         assert AuditChain(Workspace(tmp_path / "cap3", create=False)).verify().intact
 
+    def test_force_starts_a_fresh_chain_that_verifies(self, tmp_path, monkeypatch):
+        """`new --force` deletes the log after the orchestrator has been built.
+        A chain still counting from the old file writes seq 31 into a brand-new
+        log whose first row should be 0, linked to a hash that no longer exists
+        anywhere - and the result reads as tampered, which is the wrong answer
+        for a directory that was deliberately replaced."""
+        from conftest import isolated_root
+        from novaforge import cli
+        from novaforge.security.sandbox import Workspace
+
+        root = isolated_root(tmp_path)
+        monkeypatch.setattr(cli, "package_root", lambda: root)
+        premise = "A salvage crew finds a derelict that remembers them"
+        for extra in ([], ["--force"]):
+            assert cli.main(["new", premise, "--slug", "twice", "--profile", "tiny",
+                             "--engine", "mock", "--quiet"] + extra) == 0
+
+        space = Workspace(root / "output" / "twice", create=False)
+        rows = rows_of(space)
+        assert rows[0]["seq"] == 0
+        assert rows[0]["prev"] == GENESIS
+        assert AuditChain(space).verify().intact
+
     def test_a_generous_ceiling_does_not_interfere(self, tmp_path):
         from conftest import run_novel
 

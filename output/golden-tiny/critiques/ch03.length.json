@@ -5,9 +5,9 @@
   "final": {
     "critic": "length",
     "detail": {
-      "lines": 41,
+      "lines": 43,
       "paragraphs": 10,
-      "words": 427,
+      "words": 425,
       "wrap_width": 64
     },
     "findings": [],
@@ -17,9 +17,9 @@
     {
       "critic": "length",
       "detail": {
-        "lines": 41,
+        "lines": 43,
         "paragraphs": 10,
-        "words": 427,
+        "words": 425,
         "wrap_width": 64
       },
       "findings": [],

@@ -98,6 +98,21 @@ class AuditChain:
     def path(self) -> str:
         return self._path
 
+    def resync(self) -> None:
+        """Re-read the chain's position from disk.
+
+        Needed because the log can be deleted between constructing this and
+        writing to it - ``novaforge new --force`` resets the run directory, and
+        a chain still counting from the old file writes ``seq: 31`` into a
+        brand-new log whose first row should be 0, linked to a hash that no
+        longer exists anywhere. The result verifies as tampered, which is
+        exactly the wrong answer.
+        """
+        self._last = GENESIS
+        self._seq = 0
+        if self._workspace.exists(self._path):
+            self._resume_from_disk()
+
     def _resume_from_disk(self) -> None:
         """Pick up where an interrupted run left off, so a resumed run extends
         the chain rather than starting a second one beside it."""

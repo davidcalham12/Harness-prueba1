@@ -11,6 +11,7 @@ rather than an implementation detail three layers down.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 
@@ -265,3 +266,50 @@ def test_cfg_10_7_a_profile_change_alone_writes_a_different_novel(tmp_path):
     assert all(900 <= c["words"] <= 1400 for c in small.chapters)
     assert tiny_space.read_json("config.snapshot.json")["config_hash"] != \
         small_space.read_json("config.snapshot.json")["config_hash"]
+
+
+def test_acc_11_the_mock_ignores_the_premise(tmp_path):
+    """ACC-11 — the limitation a reader is most likely to miss, pinned.
+
+    Two opposite premises produce byte-identical canon, outline and chapters.
+    Only world.md and the synopsis differ, and only because they quote the
+    premise verbatim in one line each.
+
+    This is asserted rather than merely documented because it was found by
+    reading the output and noticing, which is the worst way for a limitation to
+    surface. If the mock ever becomes premise-sensitive, this test fails and
+    tells whoever changed it to update ACC-11, the README and the fixture's own
+    README - all of which currently promise the opposite.
+    """
+    _, _, spacefic = run_novel(tmp_path / "a", slug="p",
+                               premise="A deep-space salvage crew finds a derelict")
+    _, _, forge = run_novel(tmp_path / "b", slug="p",
+                            premise="A medieval blacksmith can reforge memories")
+
+    for name in ("bible/characters.md", "bible/timeline.md", "bible/mysteries.md",
+                 "outline.md", "chapters/ch01.md", "chapters/ch02.md"):
+        assert spacefic.read_text(name) == forge.read_text(name), name
+
+    # The two that do differ, differ only by the quoted premise.
+    assert "blacksmith" in forge.read_text("bible/world.md")
+    assert "blacksmith" not in forge.read_text("outline.md")
+
+
+def test_acc_11_the_documentation_says_so_where_it_is_read(tmp_path):
+    """ACC-11 — and it is said in the four places a reader actually looks, not
+    only in this spec."""
+    from novaforge.config import package_root
+
+    root = package_root()
+    for path, needle in (
+        ("README.md", "ignores your premise"),
+        ("RUNBOOK.md", "premise does not reach the prose"),
+        ("output/golden-tiny/README.md", "nothing to do with the premise"),
+        ("novaforge/engines/mock.py", "It ignores the premise"),
+    ):
+        # Read as prose: these documents are hard-wrapped, so the sentence
+        # being looked for is split across lines, and in a blockquote each
+        # of those lines starts with a "> " that would land mid-sentence.
+        raw = (root / path).read_text(encoding="utf-8")
+        prose = " ".join(re.sub(r"(?m)^\s*>\s?", "", raw).split())
+        assert needle in prose, path

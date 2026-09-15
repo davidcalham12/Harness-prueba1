@@ -209,6 +209,12 @@ class Orchestrator:
     # -- the run ---------------------------------------------------------
 
     def run(self, *, resume: bool = False) -> RunState:
+        # The log may have been deleted since this object was built - `new
+        # --force` resets the run directory after the orchestrator exists - so
+        # the chain re-reads its position here rather than trusting what it
+        # found at construction.
+        self._chain.resync()
+
         if resume and self.workspace.exists("state.json"):
             self.state = RunState.from_dict(self.workspace.read_json("state.json"))
             if self.state.config_hash != self.config.hash:
