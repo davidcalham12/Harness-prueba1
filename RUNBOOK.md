@@ -6,26 +6,28 @@ working shell, so every step here was a prediction. They have since been run on
 Python 3.12 on Windows, and the expected output quoted below is transcribed from
 a real run rather than imagined.
 
-What still does not exist is called out where it appears, and the README's
-"What is not done yet" section lists it in one place. In particular
-`specs/acceptance.md` and `specs/changes/CHG-002-acceptance-unverified.md`,
-which earlier versions of this file pointed at, were never written.
+The criteria these commands check are in `specs/acceptance.md`, and
+`specs/changes/CHG-002-acceptance-unverified.md` records how they went from
+predicted to verified. What still does not exist is called out where it
+appears, and the README's "What is not done yet" section lists it in one
+place.
 
 ## 0a. Publishing
 
 The repository is <https://github.com/davidcalham12/Harness-prueba1>. Nothing has
 been pushed to it yet.
 
-**`tools/publish.ps1` does not exist.** It was described here as a one-command
-handover that runs the checks below first and refuses to push on failure. Until
-it is written, do the two steps by hand — and in this order, because the point
-of the script was that the checks come before the push:
+One command does the whole handover. It runs the checks below **first**, plus a
+regeneration of `output/golden-tiny/`, and refuses to push if any of them fail:
 
-```bash
-python -m pytest -q
-python tools/check_specs.py
-git add -A && git commit && git push
+```powershell
+.\tools\publish.ps1 -Message "what changed"
 ```
+
+`-Force` pushes despite failures and annotates the commit message to say which
+ones were failing. `-SkipGolden` skips the fixture check, `-NoPush` stops after
+the commit. There is no remote configured yet, so the first run will commit
+locally and tell you how to add one.
 
 ## 0. Which command to run
 

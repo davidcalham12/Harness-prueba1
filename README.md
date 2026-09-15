@@ -118,7 +118,7 @@ refuses to start if a skill and `flow.yaml` disagree.
 ## Try it
 
 ```bash
-python -m pytest -q                  # 626 tests, offline, ~21 seconds
+python -m pytest -q                  # 644 tests, offline, ~25 seconds
 python tools/check_specs.py          # specs, skills and tests still agree
 python -m novaforge new "your premise here" --profile tiny --engine mock
 python -m novaforge status <slug>
@@ -226,12 +226,12 @@ kind of documentation:
   deterministically so a mock run stays reproducible and `output/golden-tiny/`
   stays diffable. Their skills declare `shipping: false` and `check_specs.py`
   reports it rather than hiding it.
-- **Some documents referenced elsewhere do not exist**, including
-  `specs/acceptance.md`, `specs/CONFIG-SPEC.md` and `tools/publish.ps1`.
 
 ## Where to read next
 
 - `RUNBOOK.md` — every command, what to expect, and what to look at afterwards
+- `specs/acceptance.md` — what has to be true for this to be doing what it claims
+- `specs/CONFIG-SPEC.md` — the configuration layer and the rules it enforces
 - `SECURITY.md` — the six layers, and what each one explicitly does *not* cover
 - `specs/flow.yaml` — the pipeline itself, which is the thing that actually runs
 - `docs/novaforge_flow.mermaid` — the same pipeline as a diagram

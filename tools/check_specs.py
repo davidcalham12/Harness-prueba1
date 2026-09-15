@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
 """Check that the specs, the skills and the tests still agree.
 
-Three kinds of drift this catches, none of which any test would:
+Five kinds of drift this catches, none of which any test would:
 
 1. **A stage naming an agent that does not exist.** ``specs/flow.yaml`` is data;
    nothing stops it naming ``chief_vibes_officer``. The run would fail at
    startup, but only when run.
-2. **A requirement nobody tests.** Every ``AGT-XX-N`` in ``specs/agents/`` must
-   be cited by a test docstring. A spec requirement with no test is a promise
-   the project is not keeping and does not know it.
+2. **A requirement nobody tests.** Every ``AGT-XX-N``, ``CFG-n`` and ``ACC-n``
+   declared under ``specs/`` must be cited by a test docstring. A spec
+   requirement with no test is a promise the project is not keeping and does
+   not know it.
 3. **A skill contradicting its own spec.** The front matter in a ``SKILL.md``
    restates role, model and ``writes_bible``. If it drifts from the spec, one
    of the two documents is lying to a reader, and the ``writes_bible`` case is
    a security question (SEC-4.3).
+4. **A test citing a requirement no spec declares.** The reverse of (2), and
+   it catches a renumbered spec as surely as an invented identifier.
+5. **A change record cited but never written.** ``CHG-nnn`` referenced from
+   anywhere in the repository must exist in ``specs/changes/``. This is how
+   `specs/acceptance.md` and `specs/CONFIG-SPEC.md` were missing for so long:
+   cited confidently from several files, and nobody checked.
 
 Exit status is 0 when everything traces and 1 otherwise, so this belongs in CI.
 
@@ -155,7 +162,7 @@ def main(argv=None) -> int:
 
     # -- 4b. change records cited anywhere must exist ----------------------
     cited_changes: set[str] = set()
-    change_ref = re.compile(r"CHG-\d{3}")
+    change_ref = re.compile(r"\bCHG-\d{3}\b")
     for path in list(ROOT.rglob("*.py")) + list(ROOT.rglob("*.md")):
         if "output" in path.parts or "__pycache__" in path.parts:
             continue
