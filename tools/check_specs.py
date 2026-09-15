@@ -32,7 +32,15 @@ sys.path.insert(0, str(ROOT))
 from novaforge.agents import AgentError, load_agents  # noqa: E402
 from novaforge.spec.flow import load_flow  # noqa: E402
 
-IDENTIFIER = re.compile(r"\bAGT-[A-Z]{2,4}-\d+\b")
+# Agent requirements, config rules and acceptance criteria. All three are
+# declared in `specs/` and must be cited by a test docstring, so the tracing is
+# one mechanism rather than three.
+IDENTIFIER = re.compile(r"\b(?:AGT-[A-Z]{2,4}|CFG|ACC)-\d+(?:\.\d+)?\b")
+SPEC_SOURCES = (
+    "specs/agents/*.md",
+    "specs/CONFIG-SPEC.md",
+    "specs/acceptance.md",
+)
 FIELD = re.compile(r"^-\s+\*\*(?P<key>[a-z_]+):\*\*\s*(?P<value>.+?)\s*$", re.M)
 
 
@@ -126,9 +134,11 @@ def main(argv=None) -> int:
 
     # -- 4. every requirement is cited by a test ---------------------------
     declared: dict[str, str] = {}
-    for name, path in specs.items():
-        for identifier in IDENTIFIER.findall(path.read_text(encoding="utf-8")):
-            declared[identifier] = f"specs/agents/{name}.md"
+    for pattern in SPEC_SOURCES:
+        for path in sorted(ROOT.glob(pattern)):
+            rel = str(path.relative_to(ROOT)).replace("\\", "/")
+            for identifier in IDENTIFIER.findall(path.read_text(encoding="utf-8")):
+                declared[identifier] = rel
 
     cited: set[str] = set()
     for path in sorted((ROOT / "tests").rglob("*.py")):
@@ -143,6 +153,21 @@ def main(argv=None) -> int:
     for identifier in sorted(cited - set(declared)):
         report.fail(f"{identifier} is cited by a test but declared in no spec")
 
+    # -- 4b. change records cited anywhere must exist ----------------------
+    cited_changes: set[str] = set()
+    change_ref = re.compile(r"CHG-\d{3}")
+    for path in list(ROOT.rglob("*.py")) + list(ROOT.rglob("*.md")):
+        if "output" in path.parts or "__pycache__" in path.parts:
+            continue
+        cited_changes.update(change_ref.findall(path.read_text(encoding="utf-8")))
+    changes = {p.name.split("-")[0] + "-" + p.name.split("-")[1]
+               for p in (ROOT / "specs" / "changes").glob("CHG-*.md")}
+    for ref in sorted(cited_changes):
+        if ref in changes:
+            report.ok(f"{ref} has a change record")
+        else:
+            report.fail(f"{ref} is cited but specs/changes/ has no record for it")
+
     # -- 5. say which skills are not on the shipping path ------------------
     parked = [a.name for a in agents if not a.on_shipping_path]
     if parked:
@@ -154,8 +179,13 @@ def main(argv=None) -> int:
     if report.problems:
         print(f"\nspecs FAILED: {len(report.problems)} problem(s)")
         return 1
+    kinds = {"AGT": 0, "CFG": 0, "ACC": 0}
+    for identifier in declared:
+        kinds[identifier.split("-")[0]] += 1
     print(f"\nspecs OK: {len(specs)} agent specs, {len(agents)} skills, "
-          f"{len(declared)} requirements, all traced")
+          f"{len(declared)} requirements "
+          f"({kinds['AGT']} agent, {kinds['CFG']} config, {kinds['ACC']} acceptance), "
+          f"all traced")
     return 0
 
 

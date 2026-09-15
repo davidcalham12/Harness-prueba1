@@ -132,6 +132,7 @@ class TestSpecValidation:
 
 class TestApplyConfig:
     def test_the_config_supplies_the_gate_numbers(self, flow, config):
+        """CFG-9 — the spec owns structure, the config owns numbers."""
         gate = flow.by_id("FLOW-4").gate
         assert list(gate.critics) == config.get("quality_gate.critics")
         assert gate.threshold == config.get("quality_gate.threshold")
@@ -155,8 +156,8 @@ class TestApplyConfig:
             assert row["stage"] == "FLOW-4"
 
     def test_the_config_cannot_add_a_gate_to_an_ungated_stage(self):
-        """The config says how hard the gate is, never whether there is one -
-        that is a structural change made from the wrong file."""
+        """CFG-9 — the config says how hard the gate is, never whether there
+        is one. That is a structural change made from the wrong file."""
         cfg = load_config(profile="tiny", overrides={"quality_gate": {"threshold": 10}})
         spec = load_flow(FLOW_PATH, config=cfg)
         assert [s.id for s in spec if s.gate is not None] == ["FLOW-4"]

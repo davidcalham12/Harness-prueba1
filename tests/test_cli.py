@@ -35,6 +35,8 @@ class TestNew:
         assert (isolated / "output" / "a" / "dist" / "book.md").exists()
 
     def test_flags_override_the_profile(self, isolated):
+        """CFG-4 — every flag is a config key. --chapters 2 and editing
+        novel.chapters are the same change by different routes."""
         cli.main(["new", PREMISE, "--profile", "tiny", "--slug", "b", "--engine", "mock",
                   "--chapters", "2", "--quiet"])
         state = json.loads((isolated / "output" / "b" / "state.json").read_text("utf-8"))
@@ -72,6 +74,8 @@ class TestForce:
         assert "resume c" in message and "--force" in message
 
     def test_force_replaces_the_run_and_the_log_describes_one_run(self, isolated):
+        """CFG-7 — regenerating over an existing run is a deliberate act,
+        because the audit log is append-only."""
         for _ in range(2):
             cli.main(["new", PREMISE, "--profile", "tiny", "--slug", "d",
                       "--engine", "mock", "--force", "--quiet"])

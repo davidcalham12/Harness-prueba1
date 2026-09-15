@@ -19,12 +19,14 @@ PROFILES = ["tiny", "small", "medium", "full"]
 
 class TestDeepMerge:
     def test_nested_dicts_merge_rather_than_replace(self):
+        """CFG-3 — dicts merge. A profile that set outputs.pdf.page_size and
+        dropped the base's margins_mm would ship a PDF with no margins."""
         base = {"a": {"x": 1, "y": 2}}
         assert deep_merge(base, {"a": {"y": 9}}) == {"a": {"x": 1, "y": 9}}
 
     def test_lists_replace_wholesale(self):
-        """A profile setting outputs.formats to ['markdown'] means *only*
-        markdown, not markdown appended to the base's list."""
+        """CFG-3 — lists replace. A profile setting outputs.formats to
+        ['markdown'] means *only* markdown, not markdown appended."""
         assert deep_merge({"f": ["a", "b"]}, {"f": ["a"]}) == {"f": ["a"]}
 
     def test_the_base_is_not_mutated(self):
@@ -35,12 +37,16 @@ class TestDeepMerge:
 
 class TestLoading:
     def test_base_alone_loads(self):
+        """CFG-1 — the base holds a value for every setting, which is what
+        lets a missing key be an error rather than an ambiguity."""
         cfg = load_config()
         assert cfg.get("novel.chapters") == 12
         assert cfg.sources == ("config/novel.config.json",)
 
     @pytest.mark.parametrize("profile", PROFILES)
     def test_every_profile_loads_and_records_its_layers(self, profile):
+        """CFG-2 — the layers a run used are recorded, so a resolved value
+        can be traced back to the file it came from."""
         cfg = load_config(profile=profile)
         assert cfg.get("profile") == profile
         assert cfg.sources[-1] == f"config/profiles/{profile}.json"
@@ -53,8 +59,9 @@ class TestLoading:
 
     @pytest.mark.parametrize("profile", PROFILES)
     def test_a_profile_inherits_what_it_does_not_state(self, profile):
-        """The overlay property, checked on the settings most likely to be
-        silently lost."""
+        """CFG-6 — a profile is partial: it states what it changes and
+        nothing else. Checked on the settings most likely to be silently
+        lost."""
         base, cfg = load_config(), load_config(profile=profile)
         assert cfg.get("outputs.pdf.margins_mm") == base.get("outputs.pdf.margins_mm")
         assert cfg.get("quality_gate") == base.get("quality_gate")
@@ -67,6 +74,7 @@ class TestLoading:
             assert load_config(profile=profile).get("outputs.pdf.page_size") == "a4"
 
     def test_cli_overrides_beat_the_profile(self):
+        """CFG-2 — flags are the narrowest layer and win over the profile."""
         cfg = load_config(profile="tiny", overrides={"novel": {"chapters": 2}})
         assert cfg.get("novel.chapters") == 2
         assert cfg.get("novel.words_per_chapter.max") == 550  # still tiny's
@@ -79,7 +87,9 @@ class TestLoading:
         assert cfg.get("novel.chapters") == 4
 
     def test_passing_the_packaged_base_to_config_is_a_no_op(self):
-        """RUNBOOK §0 says so, because the base is already the bottom layer."""
+        """CFG-2 — the base is already the bottom layer. Re-merging it on top
+        of a profile would silently restore the base's values and undo the
+        profile, so --profile tiny --config <base> would be twelve chapters."""
         from novaforge.config import package_root
         plain = load_config(profile="tiny")
         doubled = load_config(profile="tiny",
@@ -94,8 +104,9 @@ class TestLoading:
 
 class TestAccess:
     def test_a_missing_key_raises_rather_than_guessing(self):
-        """CFG-5.1: a typo must fail at the first read, not produce a silently
-        wrong novel."""
+        """CFG-5 and CFG-5.1: no config value is duplicated as a Python
+        literal, so a typo fails at the first read instead of producing a
+        silently wrong novel."""
         with pytest.raises(ConfigError):
             load_config().get("novel.chpaters")
 
@@ -110,6 +121,8 @@ class TestAccess:
 
 class TestHash:
     def test_the_same_settings_hash_the_same(self):
+        """CFG-8 — the hash identifies a run. Every audit row carries it and
+        resume refuses if it does not match."""
         assert load_config(profile="tiny").hash == load_config(profile="tiny").hash
 
     def test_different_settings_hash_differently(self):
