@@ -1,0 +1,14 @@
+{
+  "_comment": "CFG-6: a short novel.",
+  "novel": {
+    "chapters": 18,
+    "words_per_chapter": { "min": 1600, "target": 2000, "max": 2400 },
+    "tolerance_pct": 20,
+    "paragraphs_per_chapter": { "min": 12, "max": 72 },
+    "sentences_per_paragraph": { "min": 1, "max": 6 },
+    "lines_per_chapter": { "min": 90, "max": 280 },
+    "chars_per_line": { "max": 84 }
+  },
+  "context": { "max_summary_words": 260 },
+  "budget": { "max_cost_usd": 60.0, "max_calls": 900, "max_tokens": 12000000 }
+}

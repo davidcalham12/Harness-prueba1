@@ -1,0 +1,81 @@
+{
+  "_comment": "CFG-1. The complete, authoritative default. Profiles and CLI flags overlay this; nothing here may be duplicated as a literal in Python (CFG-5.1).",
+  "profile": null,
+
+  "novel": {
+    "chapters": 12,
+    "tone": "hard-scifi",
+    "author": "NovaForge",
+    "language": "en",
+    "words_per_chapter": { "min": 800, "target": 1000, "max": 1300 },
+    "tolerance_pct": 20,
+    "paragraphs_per_chapter": { "min": 8, "max": 34 },
+    "sentences_per_paragraph": { "min": 1, "max": 6 },
+    "lines_per_chapter": { "min": 45, "max": 160 },
+    "chars_per_line": { "max": 84 },
+    "beats_per_chapter": { "min": 3, "max": 5 },
+    "promises": { "min": 3, "max": 5 }
+  },
+
+  "bible": {
+    "world_min_words": 400,
+    "world_max_words": 900,
+    "technology_entries": { "min": 3, "max": 6 },
+    "factions": { "min": 2, "max": 4 },
+    "world_rules": { "min": 4, "max": 8 },
+    "characters": { "min": 4, "max": 7 },
+    "timeline_rows": { "min": 6, "max": 12 },
+    "mysteries": { "min": 3, "max": 5 }
+  },
+
+  "context": {
+    "max_summary_words": 200,
+    "forbid_prior_chapter_prose": true,
+    "leak_window_words": 10
+  },
+
+  "quality_gate": {
+    "critics": ["continuity", "science", "length"],
+    "threshold": 8,
+    "max_revisions": 2,
+    "aggregate": "min",
+    "on_fail": "accept_with_warnings"
+  },
+
+  "style": { "word_count_tolerance_pct": 10 },
+
+  "engine": {
+    "name": "mock",
+    "model": "claude-opus-5",
+    "effort": "high",
+    "seed": 0,
+    "inject_drift": true
+  },
+
+  "budget": { "max_cost_usd": 25.0, "max_calls": 500, "max_tokens": 5000000 },
+
+  "outputs": {
+    "formats": ["markdown", "pdf"],
+    "synopsis": {
+      "words": { "min": 150, "max": 250 },
+      "comparables": { "min": 2, "max": 3 }
+    },
+    "markdown": {
+      "filename": "book.md",
+      "single_file": true,
+      "include_bible_appendix": false,
+      "include_synopsis": true
+    },
+    "pdf": {
+      "filename": "book.pdf",
+      "page_size": "a4",
+      "font_size_pt": 10.5,
+      "line_height": 1.35,
+      "margins_mm": { "top": 20, "bottom": 20, "inner": 18, "outer": 16 },
+      "page_numbers": true,
+      "chapter_on_new_page": true,
+      "include_synopsis": false,
+      "shrink_to_fit": true
+    }
+  }
+}

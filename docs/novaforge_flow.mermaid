@@ -1,0 +1,66 @@
+%% NovaForge pipeline.
+%% This diagram is documentation. The executable version is specs/flow.yaml,
+%% which the orchestrator loads and runs; if the two ever disagree, the YAML is
+%% what actually happens and this file is the bug.
+flowchart TD
+    subgraph SPEC["loaded at run time"]
+        FLOWYAML["specs/flow.yaml<br/><i>structure: stages, order, permissions</i>"]
+        CONFIG["config/novel.config.json<br/><i>numbers: lengths, gate, budget, outputs</i>"]
+    end
+
+    PREMISE(["premise + tone"]) --> F1
+
+    F1["<b>FLOW-1 Worldbuilder</b><br/>writes canon"] --> WORLD[("bible/world.md")]
+    WORLD --> F2
+    F2["<b>FLOW-2 Character Architect</b><br/>writes canon"] --> CAST[("bible/characters.md<br/>timeline.md<br/>mysteries.md")]
+    CAST --> F3
+    F3["<b>FLOW-3 Plot Architect</b>"] --> OUTLINE[("outline.md<br/>acts, tension 1-10,<br/>reader promises")]
+
+    OUTLINE --> LOOP
+
+    subgraph LOOP["FLOW-4 — per chapter, until the gate clears"]
+        direction TB
+        CTX["context for this chapter only:<br/>Story Bible + this outline entry +<br/>capped rolling summary<br/><b>never prior chapter prose</b>"]
+        CTX --> WRITE["<b>Chapter Writer</b>"]
+        WRITE --> DRAFT[/"draft"/]
+        DRAFT --> C1["Continuity Critic<br/><i>model</i>"]
+        DRAFT --> C2["Science Auditor<br/><i>model</i>"]
+        DRAFT --> C3["Length Critic<br/><i>pure code</i>"]
+        C1 --> GATE{"min(scores) &ge;<br/>quality_gate.threshold?"}
+        C2 --> GATE
+        C3 --> GATE
+        GATE -- "no, drafts remain" --> FIX["findings, each quoting<br/>the offending text"]
+        FIX --> CTX
+        GATE -- "no, allowance spent" --> WARN["keep the best draft<br/>accepted_with_warnings"]
+        GATE -- "yes" --> OK["approved"]
+    end
+
+    OK --> F5
+    WARN --> F5
+    F5["<b>FLOW-5 Style Editor</b><br/>one voice across chapters<br/>written in isolation"] --> FINAL[("chapters/chNN.final.md")]
+    FINAL --> F6
+    F6["<b>FLOW-6 Publisher</b>"] --> SYN["synopsis<br/><i>model</i>"]
+    F6 --> MD[("dist/book.md")]
+    F6 --> PDF[("dist/book.pdf")]
+    SYN -.->|carried inside| MD
+
+    AUDIT[["logs/agents.jsonl<br/>hash-chained, one row per call,<br/>each carrying flow_id + config_hash"]]
+    F1 -.-> AUDIT
+    F2 -.-> AUDIT
+    F3 -.-> AUDIT
+    GATE -.->|gate_decision| AUDIT
+    F5 -.-> AUDIT
+    F6 -.-> AUDIT
+
+    FLOWYAML -.->|stage order| LOOP
+    CONFIG -.->|thresholds, bands| GATE
+    CONFIG -.->|wrap width| MD
+    CONFIG -.->|wrap width, page| PDF
+    CONFIG -.->|bands| C3
+
+    classDef canon fill:#e8f0fb,stroke:#3b6ea5,color:#12263f;
+    classDef artefact fill:#f3f0e8,stroke:#9a7d3b,color:#2f2712;
+    classDef spec fill:#eef7ee,stroke:#4a8a4a,color:#153015;
+    class WORLD,CAST,OUTLINE,FINAL canon;
+    class MD,PDF artefact;
+    class FLOWYAML,CONFIG spec;

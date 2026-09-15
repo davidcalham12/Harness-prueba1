@@ -1,0 +1,14 @@
+{
+  "_comment": "CFG-6: a novella. The first length that is worth reading end to end.",
+  "novel": {
+    "chapters": 8,
+    "words_per_chapter": { "min": 900, "target": 1150, "max": 1400 },
+    "tolerance_pct": 20,
+    "paragraphs_per_chapter": { "min": 8, "max": 44 },
+    "sentences_per_paragraph": { "min": 1, "max": 6 },
+    "lines_per_chapter": { "min": 50, "max": 170 },
+    "chars_per_line": { "max": 84 }
+  },
+  "context": { "max_summary_words": 200 },
+  "budget": { "max_cost_usd": 25.0, "max_calls": 400, "max_tokens": 4000000 }
+}

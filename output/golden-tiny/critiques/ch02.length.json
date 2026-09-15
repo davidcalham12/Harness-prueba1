@@ -1,0 +1,40 @@
+{
+  "chapter": 2,
+  "critic": "length",
+  "drafts": 2,
+  "final": {
+    "critic": "length",
+    "detail": {
+      "lines": 43,
+      "paragraphs": 10,
+      "words": 434,
+      "wrap_width": 64
+    },
+    "findings": [],
+    "score": 10
+  },
+  "iterations": [
+    {
+      "critic": "length",
+      "detail": {
+        "lines": 43,
+        "paragraphs": 11,
+        "words": 426,
+        "wrap_width": 64
+      },
+      "findings": [],
+      "score": 10
+    },
+    {
+      "critic": "length",
+      "detail": {
+        "lines": 43,
+        "paragraphs": 10,
+        "words": 434,
+        "wrap_width": 64
+      },
+      "findings": [],
+      "score": 10
+    }
+  ]
+}

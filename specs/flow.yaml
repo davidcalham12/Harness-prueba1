@@ -1,0 +1,151 @@
+# NovaForge pipeline - the contract, not a description of one.
+#
+# novaforge/orchestrator.py LOADS this file and executes it. Stage order, gate
+# thresholds, iteration limits and failure policy exist here and nowhere else:
+# there is no stage list and no threshold literal in the Python. Reorder the
+# stages below, change a threshold, or add an entry, and the next run behaves
+# differently with zero code changes.
+#
+# What Python does own is the *implementation* of each stage kind, looked up in
+# the registry by `impl`. Adding a genuinely new kind of step (not a new agent
+# with an existing shape) means adding one class and one registry entry - see
+# "Adding an agent" in README.md.
+#
+# DIVISION OF OWNERSHIP with config/novel.config.json (CONFIG-SPEC CFG-1):
+# this file owns the pipeline's STRUCTURE - which stages exist, their order,
+# their implementation, what may write the Story Bible, which inputs and
+# outputs. The config owns the NUMBERS - which critics are in the gate, what
+# score clears it, how many drafts are allowed, how much context the writer
+# gets. The gate and context_policy values below are therefore defaults for
+# reading; novaforge.spec.flow.apply_config replaces them at load time and
+# records the substitution in the audit log.
+
+version: 1
+name: novaforge-default
+description: Seed to publishable manuscript, with a per-chapter critique loop.
+
+defaults:
+  gate_threshold: 8
+  # max_iterations counts DRAFTS, not rewrites: 3 means one first draft plus
+  # up to two rewrites. The CLI's --max-revisions counts rewrites and adds one.
+  max_iterations: 3
+  aggregate: min          # a chapter is only as good as its worst critic
+  on_fail: halt
+
+stages:
+
+  - id: FLOW-1
+    name: worldbuild
+    impl: bible_section
+    agent: worldbuilder
+    description: Turn the premise into the physical and political rules of the world.
+    inputs:
+      - config.premise
+      - config.tone
+      - config.chapters
+    outputs:
+      - bible/world.md
+    writes_bible: true
+    gate: null
+    on_fail: halt
+
+  - id: FLOW-2
+    name: characters
+    impl: bible_multi_section
+    agent: character_architect
+    description: Cast, timeline and mysteries. Fixes canonical spelling for the whole novel.
+    inputs:
+      - bible/world.md
+      - config.premise
+      - config.tone
+    outputs:
+      - bible/characters.md
+      - bible/timeline.md
+      - bible/mysteries.md
+    writes_bible: true
+    gate: null
+    on_fail: halt
+
+  - id: FLOW-3
+    name: outline
+    impl: outline
+    agent: plot_architect
+    description: Acts, per-chapter tension curve and reader promises.
+    inputs:
+      - bible/world.md
+      - bible/characters.md
+      - bible/timeline.md
+      - bible/mysteries.md
+      - config.chapters
+    outputs:
+      - outline.md
+    writes_bible: false
+    gate: null
+    on_fail: halt
+
+  - id: FLOW-4
+    name: chapters
+    impl: chapter_loop
+    agent: chapter_writer
+    description: Draft each chapter, then hold it against the critics until it clears the gate.
+    foreach: chapter
+    inputs:
+      - bible/world.md
+      - bible/characters.md
+      - bible/timeline.md
+      - bible/mysteries.md
+      - outline.md#chapter
+      - summary.rolling
+    outputs:
+      - chapters/ch{n:02d}.md
+      - chapters/ch{n:02d}.summary.md
+      - critiques/ch{n:02d}.continuity.json
+      - critiques/ch{n:02d}.science.json
+    writes_bible: false
+    context_policy:
+      # The whole point of the harness: the writer never sees prior prose.
+      forbid_prior_chapter_prose: true
+      max_summary_words: 200
+    gate:
+      # Critic KINDS, not agent roles: `length` is arithmetic, not an agent.
+      # The map from kind to implementation is novaforge/critics/__init__.py.
+      critics:
+        - continuity
+        - science
+        - length
+      threshold: 8
+      max_iterations: 3
+      aggregate: min
+    on_fail: accept_with_warnings
+
+  - id: FLOW-5
+    name: style
+    impl: style_pass
+    agent: style_editor
+    description: One voice across chapters written independently of each other.
+    inputs:
+      - chapters/*.md
+      - bible/world.md
+    outputs:
+      - chapters/ch{n:02d}.final.md
+    writes_bible: false
+    gate: null
+    on_fail: halt
+
+  - id: FLOW-6
+    name: publish
+    impl: publish
+    agent: publisher
+    description: Synopsis from the model; Markdown and PDF from code.
+    inputs:
+      - chapters/*.final.md
+      - bible/world.md
+      - bible/mysteries.md
+      - outline.md
+    outputs:
+      # Which of these are actually written is outputs.formats in the config.
+      - dist/book.md
+      - dist/book.pdf
+    writes_bible: false
+    gate: null
+    on_fail: halt

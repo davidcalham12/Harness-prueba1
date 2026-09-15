@@ -1,0 +1,81 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "novaforge"
+version = "0.1.0"
+description = "A spec-driven multi-agent harness for writing science-fiction novels"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+# No runtime dependencies. The Markdown manuscript is plain text, the PDF comes
+# from novaforge/export/pdf.py, and specs/flow.yaml and config/*.json are parsed
+# by novaforge/spec/miniyaml.py and the standard json module respectively.
+# `pip install novaforge` and it runs.
+dependencies = []
+
+[project.optional-dependencies]
+# Only needed for `--engine anthropic`; the mock engine and the whole test
+# suite run without it.
+anthropic = ["anthropic>=1.0"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+novaforge = "novaforge.cli:run_cli"
+
+[tool.setuptools]
+packages = [
+    "novaforge",
+    "novaforge.critics",
+    "novaforge.domain",
+    "novaforge.engines",
+    "novaforge.export",
+    "novaforge.security",
+    "novaforge.spec",
+    "novaforge.stages",
+]
+
+# `config/`, `specs/` and `.claude/skills/` are data the running program reads,
+# not documentation. An installed copy without them cannot start: the loaders
+# refuse to fall back to built-in defaults, which is the point.
+[tool.setuptools.data-files]
+"share/novaforge/config" = ["config/novel.config.json"]
+"share/novaforge/config/profiles" = [
+    "config/profiles/tiny.json",
+    "config/profiles/small.json",
+    "config/profiles/medium.json",
+    "config/profiles/full.json",
+]
+# The executable spec. novaforge/orchestrator.py loads and runs this; there is
+# no built-in pipeline to fall back to.
+"share/novaforge/specs" = ["specs/flow.yaml"]
+"share/novaforge/specs/agents" = [
+    "specs/agents/worldbuilder.md",
+    "specs/agents/character_architect.md",
+    "specs/agents/plot_architect.md",
+    "specs/agents/chapter_writer.md",
+    "specs/agents/style_editor.md",
+    "specs/agents/publisher.md",
+    "specs/agents/continuity_critic.md",
+    "specs/agents/science_critic.md",
+]
+# The agents' prompts. Without these the run stops before its first call, which
+# is the point: an installed copy that quietly invented its own prompts would
+# write a different novel and say nothing.
+"share/novaforge/skills/worldbuilder" = [".claude/skills/worldbuilder/SKILL.md"]
+"share/novaforge/skills/character_architect" = [".claude/skills/character_architect/SKILL.md"]
+"share/novaforge/skills/plot_architect" = [".claude/skills/plot_architect/SKILL.md"]
+"share/novaforge/skills/chapter_writer" = [".claude/skills/chapter_writer/SKILL.md"]
+"share/novaforge/skills/style_editor" = [".claude/skills/style_editor/SKILL.md"]
+"share/novaforge/skills/publisher" = [".claude/skills/publisher/SKILL.md"]
+"share/novaforge/skills/continuity_critic" = [".claude/skills/continuity_critic/SKILL.md"]
+"share/novaforge/skills/science_critic" = [".claude/skills/science_critic/SKILL.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "live: hits the real Anthropic API; skipped unless ANTHROPIC_API_KEY is set",
+]
+filterwarnings = ["error::DeprecationWarning"]

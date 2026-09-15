@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+# Anchored to the repository root on purpose. An unanchored `dist/` also matches
+# output/golden-tiny/dist/, which would exclude book.md and book.pdf - the two
+# artefacts the committed fixture exists to show.
+/build/
+/dist/
+.venv/
+venv/
+
+# Test and tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Credentials. The project reads ANTHROPIC_API_KEY from the environment only
+# (SEC-2.1) and there is no --api-key flag, but a stray .env is the usual way a
+# key reaches a repository anyway.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Runs are output, not source - except the golden run, which is committed so a
+# reader can see what the harness produces without running it.
+output/*
+!output/golden-tiny/
+!output/.gitkeep
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,72 @@
+{
+  "chapter": 2,
+  "critic": "continuity",
+  "drafts": 2,
+  "final": {
+    "critic": "continuity",
+    "detail": {
+      "canonical_cast": [
+        "Ilo Vega",
+        "Mara Kassab",
+        "Renn Adeyemi",
+        "Sabo Trell"
+      ],
+      "characters_present": [
+        "Ilo Vega",
+        "Mara Kassab",
+        "Renn Adeyemi",
+        "Sabo Trell"
+      ]
+    },
+    "findings": [],
+    "score": 10
+  },
+  "iterations": [
+    {
+      "critic": "continuity",
+      "detail": {
+        "canonical_cast": [
+          "Ilo Vega",
+          "Mara Kassab",
+          "Renn Adeyemi",
+          "Sabo Trell"
+        ],
+        "characters_present": [
+          "Ilo Vega",
+          "Mara Kassab",
+          "Renn Adeyemi",
+          "Sabo Trell"
+        ]
+      },
+      "findings": [
+        {
+          "fix": "Use the canonical spelling 'Kassab' (Mara Kassab).",
+          "kind": "name-drift",
+          "quote": "Kassar",
+          "reference": "bible/characters.md",
+          "severity": "high"
+        }
+      ],
+      "score": 6
+    },
+    {
+      "critic": "continuity",
+      "detail": {
+        "canonical_cast": [
+          "Ilo Vega",
+          "Mara Kassab",
+          "Renn Adeyemi",
+          "Sabo Trell"
+        ],
+        "characters_present": [
+          "Ilo Vega",
+          "Mara Kassab",
+          "Renn Adeyemi",
+          "Sabo Trell"
+        ]
+      },
+      "findings": [],
+      "score": 10
+    }
+  ]
+}

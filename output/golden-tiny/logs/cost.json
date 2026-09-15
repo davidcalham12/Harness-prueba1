@@ -1,0 +1,19 @@
+{
+  "budget": {
+    "max_calls": 120,
+    "max_cost_usd": 5.0,
+    "max_tokens": 1000000,
+    "remaining": {
+      "calls": 104,
+      "cost_usd": 4.812615,
+      "tokens": 984987
+    }
+  },
+  "calls": 16,
+  "cost_usd": 0.187385,
+  "injection_findings": 0,
+  "input_tokens": 9397,
+  "model": "claude-opus-5",
+  "output_tokens": 5616,
+  "total_tokens": 15013
+}

@@ -1,0 +1,29 @@
+{
+  "chapter": 1,
+  "critic": "length",
+  "drafts": 1,
+  "final": {
+    "critic": "length",
+    "detail": {
+      "lines": 44,
+      "paragraphs": 10,
+      "words": 423,
+      "wrap_width": 64
+    },
+    "findings": [],
+    "score": 10
+  },
+  "iterations": [
+    {
+      "critic": "length",
+      "detail": {
+        "lines": 44,
+        "paragraphs": 10,
+        "words": 423,
+        "wrap_width": 64
+      },
+      "findings": [],
+      "score": 10
+    }
+  ]
+}
