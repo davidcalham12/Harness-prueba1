@@ -33,7 +33,24 @@ from __future__ import annotations
 import os
 from typing import Any, Callable
 
-__all__ = ["FilePrompts", "LangfusePrompts", "PromptSource", "build_prompt_source"]
+__all__ = ["FilePrompts", "LangfusePrompts", "PromptSource", "build_prompt_source",
+           "langfuse_host"]
+
+# Langfuse's own documentation says LANGFUSE_BASE_URL; older material and
+# the SDK's own parameter say host. Reading only one of them means anyone
+# following the current docs sets a variable nothing reads, their region
+# silently defaults to the EU, and the failure that follows is an auth
+# error that says nothing about regions. Both are accepted.
+HOST_ENV = ("LANGFUSE_BASE_URL", "LANGFUSE_HOST")
+
+
+def langfuse_host() -> str | None:
+    """The configured host, from either environment variable."""
+    for name in HOST_ENV:
+        value = (os.environ.get(name) or "").strip()
+        if value:
+            return value
+    return None
 
 
 class FilePrompts:
@@ -74,7 +91,7 @@ class LangfusePrompts:
         self._client = None
         if public and secret:
             self._client = Langfuse(public_key=public, secret_key=secret,
-                                    host=os.environ.get("LANGFUSE_HOST") or None)
+                                    host=langfuse_host())
         else:
             # No credentials is the same condition as an unreachable service,
             # and was not treated as one: an earlier version raised here while

@@ -114,6 +114,57 @@ class TestDegradingWithoutCredentials:
         assert space.exists("dist/book.md")
 
 
+class TestTheHostVariable:
+    """Langfuse's own documentation says LANGFUSE_BASE_URL; the SDK parameter
+    and older material say host. Reading only one means someone following the
+    current docs sets a variable nothing reads, their region silently defaults
+    to the EU, and the auth error that follows says nothing about regions.
+
+    Found by watching someone paste the documented variable and get nowhere.
+    """
+
+    @pytest.mark.parametrize("name", ["LANGFUSE_BASE_URL", "LANGFUSE_HOST"])
+    def test_either_name_works(self, name, monkeypatch):
+        from novaforge.prompts import langfuse_host
+
+        for other in ("LANGFUSE_BASE_URL", "LANGFUSE_HOST"):
+            monkeypatch.delenv(other, raising=False)
+        monkeypatch.setenv(name, "https://us.cloud.langfuse.com")
+        assert langfuse_host() == "https://us.cloud.langfuse.com"
+
+    def test_the_documented_name_wins_when_both_are_set(self, monkeypatch):
+        from novaforge.prompts import langfuse_host
+
+        monkeypatch.setenv("LANGFUSE_BASE_URL", "https://us.cloud.langfuse.com")
+        monkeypatch.setenv("LANGFUSE_HOST", "https://stale.example")
+        assert langfuse_host() == "https://us.cloud.langfuse.com"
+
+    def test_neither_set_means_the_sdk_default(self, monkeypatch):
+        from novaforge.prompts import langfuse_host
+
+        for name in ("LANGFUSE_BASE_URL", "LANGFUSE_HOST"):
+            monkeypatch.delenv(name, raising=False)
+        assert langfuse_host() is None
+
+    def test_whitespace_is_not_a_host(self, monkeypatch):
+        from novaforge.prompts import langfuse_host
+
+        monkeypatch.delenv("LANGFUSE_HOST", raising=False)
+        monkeypatch.setenv("LANGFUSE_BASE_URL", "   ")
+        assert langfuse_host() is None
+
+    def test_both_the_sink_and_the_prompt_source_use_it(self):
+        """Two places reading the host two different ways is how a region ends
+        up split between them."""
+        import inspect
+
+        from novaforge.observability import langfuse as sink_module
+        from novaforge import prompts
+
+        assert "langfuse_host()" in inspect.getsource(sink_module)
+        assert "langfuse_host()" in inspect.getsource(prompts)
+
+
 class _Hostile:
     """A source that returns different wording and tries to claim more."""
 

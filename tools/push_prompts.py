@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from novaforge.agents import load_agents  # noqa: E402
+from novaforge.prompts import langfuse_host  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -67,7 +68,7 @@ def main(argv=None) -> int:
     client = Langfuse(
         public_key=os.environ["LANGFUSE_PUBLIC_KEY"],
         secret_key=os.environ["LANGFUSE_SECRET_KEY"],
-        host=os.environ.get("LANGFUSE_HOST") or None,
+        host=langfuse_host(),
     )
     if not client.auth_check():
         print("\nthose credentials do not reach a project", file=sys.stderr)

@@ -15,8 +15,10 @@ than an instrumentation pass.
 
 **The credentials come from the environment only**, for the same reason the
 Anthropic key does (SEC-2.1): a flag lands in shell history and in the process
-table. `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_HOST` when
-self-hosting.
+table. `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and either
+`LANGFUSE_BASE_URL` or `LANGFUSE_HOST` to pick a region or a self-hosted
+instance - Langfuse's own docs name the first, the SDK names the second, and
+reading only one of them sends US-region data to the EU default.
 
 **Prompts and outputs are scrubbed before they leave the machine.** A premise
 is user-supplied and a completion is model-written, and this is the one place
@@ -29,6 +31,7 @@ from __future__ import annotations
 import os
 from typing import Any, Callable, Mapping
 
+from ..prompts import langfuse_host
 from ..security.secrets import Redactor
 from .base import safely
 
@@ -36,7 +39,8 @@ __all__ = ["LangfuseSink", "MissingLangfuse"]
 
 ENV_PUBLIC = "LANGFUSE_PUBLIC_KEY"
 ENV_SECRET = "LANGFUSE_SECRET_KEY"
-ENV_HOST = "LANGFUSE_HOST"
+# Both names; see novaforge.prompts.HOST_ENV for why.
+ENV_HOST = "LANGFUSE_BASE_URL or LANGFUSE_HOST"
 
 # A prompt carries the whole Story Bible by the last chapter and there is no
 # reason to ship all of it to a dashboard. Enough to recognise a call, not
@@ -76,7 +80,7 @@ class LangfuseSink:
         self._report = report or (lambda _: None)
         self._redactor = Redactor.from_env().with_literal(secret).with_literal(public)
         self._client = Langfuse(public_key=public, secret_key=secret,
-                                host=os.environ.get(ENV_HOST) or None,
+                                host=langfuse_host(),
                                 environment=environment)
         self._trace_id: str | None = None
         # Keyed by chapter, so a gate decision can be scored against the

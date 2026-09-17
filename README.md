@@ -131,7 +131,7 @@ refuses to start if a skill and `flow.yaml` disagree.
 ## Try it
 
 ```bash
-python -m pytest -q                  # 784 tests, ~50 seconds
+python -m pytest -q                  # 790 tests, ~52 seconds
 python tools/check_specs.py          # specs, skills and tests still agree
 python -m novaforge new "your premise here" --profile tiny --engine mock
 python -m novaforge status <slug>
@@ -197,6 +197,8 @@ The project has moved to Langfuse for two things: **observing runs** and
 pip install "novaforge[langfuse]"
 $env:LANGFUSE_PUBLIC_KEY = "pk-lf-..."
 $env:LANGFUSE_SECRET_KEY = "sk-lf-..."
+# pick your region; either name works
+$env:LANGFUSE_BASE_URL   = "https://us.cloud.langfuse.com"
 
 python tools\push_prompts.py --push          # seed the 8 prompts
 python -m novaforge new "your premise" --profile tiny --engine mock
