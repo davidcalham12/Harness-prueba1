@@ -169,7 +169,9 @@ Stated here rather than buried, because five of these were real properties that
 - **No reproducibility.** Two runs of the same premise differ. There is no
   committed fixture to diff.
 - **No tamper-evident audit.** `logs/agents.jsonl` is a flat file. Nothing
-  detects a row edited, removed or reordered.
+  detects a row edited, removed or reordered. It is good enough to ship to a
+  dashboard — see `tools/export_to_langfuse.py` — and not good enough to be
+  evidence.
 - **No enforced spend ceiling.** `budget` in the config is advisory. The
   orchestrator states the implied call count up front and you decide there.
 - **No input validation and no output escaping.** A paragraph beginning `## `
@@ -188,6 +190,7 @@ specs/acceptance.md       ACC-1..ACC-11, each marked with how it is established
 specs/CONFIG-SPEC.md      CFG-1..CFG-12, two of them withdrawn
 specs/changes/            CHG-001..CHG-003, including this refactor
 config/                   the base config and four profiles
+tools/                    export_to_langfuse.py, ships a finished run to Langfuse
 docs/                     the pipeline diagram
 SECURITY.md               six layers, compared against main line by line
 ```

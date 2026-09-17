@@ -12,7 +12,8 @@ loaded and sent by Python — to `.claude/agents/<name>.md`, which are Claude Co
 subagents dispatched with the Agent tool.
 
 Deleted: `novaforge/` (49 files, 7,184 lines), `tests/` (30 files, 5,453 lines),
-`tools/`, `output/golden-tiny/` (34 files), `pyproject.toml`, `RUNBOOK.md`.
+`tools/`, `output/golden-tiny/` (34 files), `pyproject.toml`, `RUNBOOK.md`. One
+tool came back later: `tools/export_to_langfuse.py`, see below.
 Kept and rewritten: `specs/`, `config/`, `README.md`, `SECURITY.md`, the diagram.
 
 Roughly 14,000 of 16,400 lines went.
@@ -58,10 +59,14 @@ advocacy.
 - **The tamper-evident audit chain**, the pre-call budget ceilings, the input
   validation, the output escaping and the redactor. See `SECURITY.md` for the
   layer-by-layer account: one row improved, five got worse.
-- **The Langfuse integration**, built and verified against a live project the
-  same week this branch was cut — traces, scores, and prompt management with the
-  prompt files as fallback. It hung off the Python orchestrator's single `_call`
-  funnel and went with it.
+- **Live Langfuse tracing and prompt management.** The `LangfuseSink` hung off
+  the Python orchestrator's single `_call` funnel and went with it, and so did
+  prompt management — the wording now lives in `.claude/agents/` and changing it
+  is a commit. **Partly recovered:** `tools/export_to_langfuse.py` ships a
+  finished run's log after the fact. One trace per run, one generation per
+  subagent call, one score per critic. What it cannot do is show you a run while
+  it happens, and it sends no token counts or cost, because the orchestrator
+  does not record per-call usage.
 - **Headless operation.** `python -m novaforge` ran in a shell, a cron job or
   CI. This is a procedure a person drives inside Claude Code.
 - **PDF export.** `novaforge/export/pdf.py` wrote A5 pages against real Helvetica
