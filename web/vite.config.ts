@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import { parse as parseYaml } from 'yaml'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -14,6 +15,8 @@ const REPO_ROOT = path.resolve(__dirname, '..')
  * or specification the pipeline reads.
  */
 const ALLOWED_PREFIXES = ['output/', 'config/', 'specs/', '.claude/agents/']
+
+const read = (p: string) => fs.readFileSync(p, 'utf8')
 
 function allowed(rel: string): boolean {
   return ALLOWED_PREFIXES.some((p) => rel === p.slice(0, -1) || rel.startsWith(p))
@@ -133,6 +136,35 @@ function repoData(): Plugin {
           type: 'asset',
           fileName: `data/${rel}`,
           source: fs.readFileSync(path.join(REPO_ROOT, rel)),
+        })
+      }
+
+      // JSON twins for the two files that are not a servable web media type.
+      //
+      // A static host will serve .jsonl and .yaml happily; a sandboxed one that
+      // allowlists media types will not, and the page then loads with no log
+      // and no stage list. Emitting the same content as JSON costs a few
+      // kilobytes and makes the build portable to either. The loaders prefer
+      // the twin and fall back, so the dev server keeps reading the originals
+      // and there is exactly one source of truth on disk.
+      const flow = parseYaml(read(path.join(REPO_ROOT, 'specs', 'flow.yaml')))
+      this.emitFile({
+        type: 'asset',
+        fileName: 'data/specs/flow.json',
+        source: JSON.stringify(flow),
+      })
+
+      for (const slug of listRuns()) {
+        const log = path.join(REPO_ROOT, 'output', slug, 'logs', 'agents.jsonl')
+        if (!fs.existsSync(log)) continue
+        const rows = read(log)
+          .split(/\r?\n/)
+          .filter((line) => line.trim())
+          .map((line) => JSON.parse(line))
+        this.emitFile({
+          type: 'asset',
+          fileName: `data/output/${slug}/logs/agents.json`,
+          source: JSON.stringify(rows),
         })
       }
     },

@@ -21,6 +21,34 @@
   --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
 }
 
+/*
+ * Dark is defined twice on purpose, and the guard matters.
+ *
+ * A viewer has three states, not two: an explicit choice stamps
+ * `data-theme` on the root element, and the default "system" setting stamps
+ * nothing at all. The media query serves that third, unstamped state; the
+ * `:not([data-theme='light'])` guard keeps an explicit light choice winning
+ * over a dark OS; and the `[data-theme='dark']` block lets the toggle win in
+ * the other direction. Defining dark only under `[data-theme]` renders light
+ * text on a dark host ground for everyone who never touched the setting.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #16181c;
+    --panel: #1d2026;
+    --ink: #e8e6e3;
+    --ink-soft: #9aa0a8;
+    --line: #2f343c;
+    --accent: #7aaede;
+    --ok: #6fbf8f;
+    --warn: #d9a441;
+    --bad: #e07a7a;
+    --clash: #b48ce0;
+    --exact: #6fbf8f;
+    --model: #d0a06a;
+  }
+}
+
 :root[data-theme='dark'] {
   --bg: #16181c;
   --panel: #1d2026;

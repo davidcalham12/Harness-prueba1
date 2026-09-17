@@ -84,11 +84,25 @@ export function classify(row: Record<string, unknown>): LogEntry {
   }
 }
 
+/**
+ * The run log, from whichever of its two forms the host will serve.
+ *
+ * `agents.jsonl` is the file the orchestrator writes and the one the dev server
+ * hands over. A sandboxed static host that allowlists media types will not
+ * serve `.jsonl`, so `vite build` emits an `agents.json` twin holding the same
+ * rows as an array. Preferring the twin and falling back keeps one source of
+ * truth on disk and lets the same bundle run in either place.
+ */
 export async function loadLog(slug: string): Promise<LogEntry[]> {
+  const asArray = await optional(() =>
+    json<Array<Record<string, unknown>>>(`output/${slug}/logs/agents.json`),
+  )
+  if (asArray) return asArray.map(classify)
+
   const raw = await optional(() => text(`output/${slug}/logs/agents.jsonl`))
   if (raw === null) return []
   const entries: LogEntry[] = []
-  for (const line of raw.split('\n')) {
+  for (const line of raw.split(/\r?\n/)) {
     if (!line.trim()) continue
     try {
       entries.push(classify(JSON.parse(line)))
@@ -153,8 +167,11 @@ export const PROFILE_NAMES = ['tiny', 'small', 'medium', 'full']
  * into TypeScript would silently stop telling the truth the day that happens.
  */
 export async function loadFlow(): Promise<FlowSpec> {
-  const parsed = parseYaml(await text('specs/flow.yaml')) as FlowSpec
-  if (!parsed?.stages?.length) throw new Error('specs/flow.yaml has no stages')
+  // `flow.json` is the build-time twin of `flow.yaml`, for hosts that will not
+  // serve YAML. Same content, same source file; see loadLog for the reasoning.
+  const twin = await optional(() => json<FlowSpec>('specs/flow.json'))
+  const parsed = twin ?? (parseYaml(await text('specs/flow.yaml')) as FlowSpec)
+  if (!parsed?.stages?.length) throw new Error('the flow spec has no stages')
   return parsed
 }
 
