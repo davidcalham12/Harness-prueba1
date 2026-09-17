@@ -45,6 +45,8 @@ Commits, del más antiguo al más reciente:
 dfc3667  Ship a finished run to Langfuse from its log
 ccc23aa  auth_check raises, it does not return False
 9e990c9  Token spend in the traces, with the cost honestly bounded
+01eb47d  web/: a read-only panel for a run
+47733ef  web/: prove the screens render, not just that they typecheck
 ```
 
 `main` está intacta. El usuario eligió explícitamente hacer la refactorización
@@ -65,6 +67,7 @@ config/profiles/          tiny(3 cap) small(8) medium(18) full(34)
 config/pricing.json       tarifas de modelo y la suposición del coste
 tools/export_to_langfuse.py
 tools/backfill_tokens.py
+web/                      panel web de solo lectura (Vite + React + TS)
 docs/novaforge_flow.mermaid
 README.md  SECURITY.md  HANDOFF.md
 ```
@@ -243,15 +246,20 @@ crearla pero no revisarla**. Durante la ejecución esto bloqueó al worldbuilder
 se resolvió borrando el fichero para que lo escribiera limpio. Costó **17.479
 tokens en una llamada que no produjo nada**.
 
-El arreglo es:
+El arreglo es cambiar una línea en cada uno de esos dos ficheros:
 
 ```yaml
-tools: Read, Write
+tools: Read, Write     # ahora dice: tools: Write
 ```
 
-Intenté hacerlo y **el clasificador de permisos lo denegó como Self-Modification**.
-Necesita que el usuario lo autorice. No toca la garantía del `chapter-writer`,
-que sigue con `Glob` solo.
+**Intentado dos veces y denegado las dos** por el clasificador de permisos como
+*Self-Modification*. Necesita que lo haga el usuario a mano, o que autorice la
+acción. No toca la garantía del `chapter-writer`, que sigue con `Glob` solo, ni
+el modelo de autoridad: estos dos ya son los únicos con `Write`.
+
+El panel lo detecta: la pantalla de Ejecución contrasta los agentes con
+`writes_bible: true` en `flow.yaml` contra los que llevan la herramienta
+`Write`, y dice si coinciden.
 
 ### 8.2 Rotación de claves Langfuse
 
@@ -286,6 +294,47 @@ Resumen:
 
 `SECURITY.md` compara las seis capas contra `main` en una tabla: **una mejoró,
 cinco empeoraron.**
+
+## 9-bis. El panel web
+
+`web/` es un visor **de solo lectura** de las ejecuciones. No lanza nada, no
+llama a ningún modelo, no guarda ninguna clave y no escribe en `output/`.
+
+```bash
+cd web
+npm install
+npm run dev      # http://localhost:5178
+npm test         # 28 comprobaciones de lógica + 5 de renderizado
+npm run build    # ficheros estáticos en dist/
+```
+
+**No hay backend.** `vite.config.ts` sirve ficheros del repo en `/data/<ruta>`
+durante el desarrollo y los copia a `dist/data/` al construir, con lista blanca
+(`output/`, `config/`, `specs/`, `.claude/agents/`).
+
+Cinco pantallas: **Calidad** (tabla del gate, hallazgos, el desacuerdo del cap 3
+con su sello de anulado, contador de incidencias), **Ejecución** (seis carriles
+desde `flow.yaml`, fichas de agente con sus herramientas, reparto de tokens),
+**Configurador** (tres capas base→perfil→tuyo, validación de viabilidad,
+proyección de llamadas y coste), **Manuscrito** (lector con detector de `##` a
+principio de párrafo) y **Replay** (reproduce el log paso a paso, coste cero).
+
+Tres reglas que el panel no rompe:
+
+- **Ninguna cifra sin procedencia**: ● medido, ◐ reportado por el agente,
+  ◌ reconstruido, — no registrado.
+- **El coste siempre en tres cifras**, nunca una sola.
+- **Las fuentes que se contradicen se muestran contradiciéndose**: la
+  discrepancia 24 vs 25 llamadas sale en la cabecera con su origen.
+
+Las seis etapas y los ocho agentes se **parsean** de `specs/flow.yaml` y
+`.claude/agents/*.md`; no hay constantes escritas a mano en el front.
+
+**Un defecto encontrado y corregido construyéndolo:**
+`/data/output/../SECURITY.md` devolvía 200, porque la lista blanca se
+comprobaba sobre la ruta pedida y la contención solo después de resolver. Ahora
+ambas corren sobre la ruta normalizada — el mismo punto que hace SEC-3 en
+`main`. Siete casos lo fijan en la prueba.
 
 ## 10. Cómo ejecutar una novela nueva
 
