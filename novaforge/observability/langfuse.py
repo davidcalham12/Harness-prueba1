@@ -113,17 +113,23 @@ class LangfuseSink:
             # trace id across a resume, and a resumed run extends its trace
             # rather than starting a second one beside it.
             self._trace_id = Langfuse.create_trace_id(seed=f"{slug}|{config_hash}")
+            # In SDK v4 the trace takes its name from its root observation, and
+            # there is no public way to set trace-level tags: `update_trace` was
+            # a v3 method and the only v4 route is a private one. So everything
+            # a reader would have filtered on goes into metadata, which is
+            # public, visible in the UI and will not vanish in a point release.
             span = self._client.start_observation(
                 trace_context={"trace_id": self._trace_id},
                 name=f"novel:{slug}",
                 as_type="chain",
                 input={"premise": self._clean(premise)},
-                metadata={"config_hash": config_hash, **dict(metadata)},
+                metadata={
+                    "config_hash": config_hash,
+                    "profile": metadata.get("profile") or "none",
+                    "engine": metadata.get("engine") or "unknown",
+                    **dict(metadata),
+                },
             )
-            span.update_trace(name=f"novel:{slug}",
-                              tags=[f"config:{config_hash}",
-                                    f"profile:{metadata.get('profile') or 'none'}",
-                                    f"engine:{metadata.get('engine') or 'unknown'}"])
             span.end()
         safely(go, on_error=self._report)
 

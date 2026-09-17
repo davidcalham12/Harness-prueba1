@@ -59,6 +59,74 @@ class TestItFailsHelpfully:
             LangfuseSink()
 
 
+class TestTheSdkSurfaceIsReal:
+    """Every SDK method this module calls must exist on the installed version.
+
+    `update_trace` did not. It is a v3 method, the code called it on a v4
+    object, and the only symptom was a trace with no name and no tags — sent
+    through `safely`, so the AttributeError went to a reporter that had not
+    been wired up either. It took a run against a real project, and then a
+    second fix, before anyone saw it.
+
+    This is a contract test against whatever version is installed. It is cheap,
+    it runs offline, and it turns "the SDK moved" from a runtime surprise into
+    a failing test.
+    """
+
+    @needs_sdk
+    @pytest.mark.parametrize("method", [
+        "start_observation", "create_score", "create_trace_id",
+        "create_prompt", "get_prompt", "auth_check", "flush", "get_trace_url",
+    ])
+    def test_the_client_method_exists(self, method):
+        from langfuse import Langfuse
+
+        assert hasattr(Langfuse, method), (
+            f"novaforge calls Langfuse.{method}, which this SDK version does "
+            f"not have")
+
+    @needs_sdk
+    @pytest.mark.parametrize("method", ["end", "update"])
+    def test_the_observation_method_exists(self, method):
+        """`update_trace` was called here and does not exist in v4."""
+        from langfuse._client.span import LangfuseChain, LangfuseGeneration
+
+        for cls in (LangfuseChain, LangfuseGeneration):
+            assert hasattr(cls, method), f"{cls.__name__}.{method} is gone"
+
+    @needs_sdk
+    def test_nothing_private_is_called(self):
+        """A private method is one that can be renamed in a point release
+        without anyone calling it a breaking change. Trace-level tags are
+        available only that way in v4, so they are not used - the same
+        information is in metadata instead."""
+        import inspect
+
+        from novaforge.observability import langfuse as module
+
+        source = inspect.getsource(module)
+        for line in source.splitlines():
+            if "self._client._" in line or "span._" in line:
+                raise AssertionError(f"reaches into SDK internals: {line.strip()}")
+
+    @needs_sdk
+    def test_the_arguments_are_ones_the_sdk_accepts(self):
+        """A method existing is not the same as it taking what we pass it."""
+        import inspect
+
+        from langfuse import Langfuse
+
+        observation = set(inspect.signature(Langfuse.start_observation).parameters)
+        for name in ("trace_context", "name", "as_type", "input", "output",
+                     "metadata", "model", "usage_details", "cost_details"):
+            assert name in observation, name
+
+        score = set(inspect.signature(Langfuse.create_score).parameters)
+        for name in ("name", "value", "data_type", "trace_id",
+                     "observation_id", "comment", "metadata"):
+            assert name in score, name
+
+
 class TestSecretsNeverLeaveTheMachine:
     @needs_sdk
     @needs_keys
