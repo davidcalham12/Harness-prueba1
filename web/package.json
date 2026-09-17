@@ -9,7 +9,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types smoke.mts"
+    "test": "node --experimental-strip-types smoke.mts && npm run render-check",
+    "render-check": "vite build --ssr ssr-check.tsx --outDir dist-ssr --logLevel warn && node dist-ssr/ssr-check.js"
   },
   "dependencies": {
     "react": "^18.3.1",
