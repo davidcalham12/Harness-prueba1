@@ -1,10 +1,10 @@
 # Publisher — agent spec
 
-- **role:** `publisher`
-- **model:** `claude-sonnet-5`
+- **name:** `publisher`
+- **model:** `sonnet`
 - **writes_bible:** false
 - **stage:** FLOW-6
-- **skill:** `.claude/skills/publisher/SKILL.md`
+- **subagent:** `.claude/agents/publisher.md`
 
 Synopsis from the model; Markdown and PDF from code.
 
@@ -22,6 +22,9 @@ that lies in its summary.
 
 ## Authority
 
-`writes_bible` above is checked against `specs/flow.yaml` and against
-`novaforge.security.prompting.BIBLE_WRITERS` at load time. A skill file cannot
-grant itself Bible access by editing its own front matter (SEC-4.3).
+`writes_bible` above is the spec's statement and `specs/flow.yaml` is the other
+half of it. On this branch it is held by the subagent's tool list: only the two
+Bible writers carry the Write tool, and every other agent returns text that the
+orchestrator writes to disk. An agent cannot grant itself Bible access by editing
+its own front matter, because what it would have to edit is that tool list, and
+the tool list is the thing a reviewer reads (SEC-4).

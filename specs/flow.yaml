@@ -1,24 +1,31 @@
 # NovaForge pipeline - the contract, not a description of one.
 #
-# novaforge/orchestrator.py LOADS this file and executes it. Stage order, gate
-# thresholds, iteration limits and failure policy exist here and nowhere else:
-# there is no stage list and no threshold literal in the Python. Reorder the
-# stages below, change a threshold, or add an entry, and the next run behaves
-# differently with zero code changes.
+# `.claude/skills/novaforge/SKILL.md` tells the orchestrator to READ this file
+# and execute it. Stage order, gate thresholds, iteration limits and failure
+# policy exist here and nowhere else: the skill describes the procedure, this
+# file supplies its structure. Reorder the stages below, change a threshold, or
+# add an entry, and the next run behaves differently with no change to the
+# skill.
 #
-# What Python does own is the *implementation* of each stage kind, looked up in
-# the registry by `impl`. Adding a genuinely new kind of step (not a new agent
-# with an existing shape) means adding one class and one registry entry - see
-# "Adding an agent" in README.md.
+# `agent` on each stage is the subagent to dispatch. It must be the `name` in
+# the front matter of the matching file in `.claude/agents/`, because that is
+# what the Agent tool resolves.
 #
 # DIVISION OF OWNERSHIP with config/novel.config.json (CONFIG-SPEC CFG-1):
 # this file owns the pipeline's STRUCTURE - which stages exist, their order,
-# their implementation, what may write the Story Bible, which inputs and
+# which agent runs each one, what may write the Story Bible, which inputs and
 # outputs. The config owns the NUMBERS - which critics are in the gate, what
 # score clears it, how many drafts are allowed, how much context the writer
 # gets. The gate and context_policy values below are therefore defaults for
-# reading; novaforge.spec.flow.apply_config replaces them at load time and
-# records the substitution in the audit log.
+# reading; the config replaces them at run time and the orchestrator records
+# the substitution in the run log.
+#
+# AUTHORITY. `writes_bible` is the spec's statement of which agents may write
+# canon. On this branch it is not enforced by a runtime check but by the
+# subagents' tool lists: only `worldbuilder` and `character-architect` have the
+# Write tool at all, and every other agent returns text the orchestrator writes.
+# A stage that says `writes_bible: true` for an agent with no Write tool is a
+# contradiction, and the spec is the side that is right.
 
 version: 1
 name: novaforge-default
@@ -27,7 +34,7 @@ description: Seed to publishable manuscript, with a per-chapter critique loop.
 defaults:
   gate_threshold: 8
   # max_iterations counts DRAFTS, not rewrites: 3 means one first draft plus
-  # up to two rewrites. The CLI's --max-revisions counts rewrites and adds one.
+  # up to two rewrites. The config's max_revisions counts rewrites and adds one.
   max_iterations: 3
   aggregate: min          # a chapter is only as good as its worst critic
   on_fail: halt
@@ -36,7 +43,6 @@ stages:
 
   - id: FLOW-1
     name: worldbuild
-    impl: bible_section
     agent: worldbuilder
     description: Turn the premise into the physical and political rules of the world.
     inputs:
@@ -51,8 +57,7 @@ stages:
 
   - id: FLOW-2
     name: characters
-    impl: bible_multi_section
-    agent: character_architect
+    agent: character-architect
     description: Cast, timeline and mysteries. Fixes canonical spelling for the whole novel.
     inputs:
       - bible/world.md
@@ -68,8 +73,7 @@ stages:
 
   - id: FLOW-3
     name: outline
-    impl: outline
-    agent: plot_architect
+    agent: plot-architect
     description: Acts, per-chapter tension curve and reader promises.
     inputs:
       - bible/world.md
@@ -85,8 +89,7 @@ stages:
 
   - id: FLOW-4
     name: chapters
-    impl: chapter_loop
-    agent: chapter_writer
+    agent: chapter-writer
     description: Draft each chapter, then hold it against the critics until it clears the gate.
     foreach: chapter
     inputs:
@@ -104,15 +107,21 @@ stages:
     writes_bible: false
     context_policy:
       # The whole point of the harness: the writer never sees prior prose.
+      # Held here by the chapter-writer's tool list - Glob returns paths and
+      # cannot return contents - and by the orchestrator assembling the prompt
+      # from the Bible, one outline entry and a capped summary.
       forbid_prior_chapter_prose: true
       max_summary_words: 200
     gate:
-      # Critic KINDS, not agent roles: `length` is arithmetic, not an agent.
-      # The map from kind to implementation is novaforge/critics/__init__.py.
+      # Critic KINDS, not agent roles. `continuity` and `science` are the
+      # subagents of those names; `length` and `chatter` are arithmetic the
+      # orchestrator runs in the shell, which is why they reproduce and the
+      # other two do not.
       critics:
         - continuity
         - science
         - length
+        - chatter
       threshold: 8
       max_iterations: 3
       aggregate: min
@@ -120,8 +129,7 @@ stages:
 
   - id: FLOW-5
     name: style
-    impl: style_pass
-    agent: style_editor
+    agent: style-editor
     description: One voice across chapters written independently of each other.
     inputs:
       - chapters/*.md
@@ -134,9 +142,8 @@ stages:
 
   - id: FLOW-6
     name: publish
-    impl: publish
     agent: publisher
-    description: Synopsis from the model; Markdown and PDF from code.
+    description: Synopsis from the model; the manuscript assembled by the orchestrator.
     inputs:
       - chapters/*.final.md
       - bible/world.md
@@ -144,8 +151,9 @@ stages:
       - outline.md
     outputs:
       # Which of these are actually written is outputs.formats in the config.
+      # PDF export was a Python module and is not available on this branch.
+      - synopsis.md
       - dist/book.md
-      - dist/book.pdf
     writes_bible: false
     gate: null
     on_fail: halt

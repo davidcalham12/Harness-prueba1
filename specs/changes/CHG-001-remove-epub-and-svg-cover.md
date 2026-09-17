@@ -1,5 +1,9 @@
 # CHG-001 — Remove the EPUB and the SVG cover
 
+> **On the `claude-orchestrator` branch, read this as history.** It records
+> something that happened to the Python implementation, which lives on `main`.
+> The files it names are not in this branch's tree. See CHG-003.
+
 **Status:** done, before this repository had a working shell.
 
 ## What changed

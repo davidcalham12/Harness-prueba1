@@ -1,195 +1,176 @@
 # CONFIG-SPEC — the configuration layer
 
 What `config/novel.config.json` and `config/profiles/*.json` are for, and the
-rules the loader in `novaforge/config.py` enforces.
+rules the orchestrator follows when it merges them.
 
-**On the numbering.** The identifiers below have gaps. They are the ones
-already cited from the code and the documentation — `CFG-1` in
-`novaforge/config.py`, `CFG-4` in `novaforge/cli.py`, `CFG-5.1` in
-`novaforge/context.py`, `CFG-6` in every profile's `_comment`, `CFG-10.7` in
-`RUNBOOK.md`. Renumbering them to be tidy would invalidate every one of those
-citations, which is a worse outcome than a spec that counts unevenly.
+**On the numbering.** The identifiers below have gaps, and two are withdrawn.
+They were assigned when a Python loader enforced them and they are cited from
+other documents, so renumbering them to be tidy would invalidate those citations
+— a worse outcome than a spec that counts unevenly. A withdrawn identifier keeps
+its number and says what it used to mean.
+
+**On enforcement.** On `main`, `novaforge/config.py` enforced these rules and
+`tests/test_config.py` checked that it did. Here the orchestrator follows them
+because `SKILL.md` says to. Every rule below is therefore a rule a procedure
+observes, not one a loader imposes. Where that difference has teeth, it is
+marked.
 
 ---
 
 ## CFG-1 — The base config is complete and authoritative
 
-`config/novel.config.json` holds a value for **every** setting the program
-reads. Profiles and flags overlay it; nothing overlays *into* it.
+`config/novel.config.json` holds a value for **every** setting the pipeline
+reads. Profiles overlay it; nothing overlays *into* it.
 
-This is what lets the loader raise on a missing key instead of guessing. A base
-config with holes would make "the key is absent" ambiguous between "you made a
-typo" and "this one has no default", and the loader would have to tolerate
-both.
+On `main` this is what let the loader raise on a missing key instead of
+guessing. Here nothing raises — an absent key is simply a value the orchestrator
+will not find, and what happens next depends on it noticing. Keeping the base
+complete is therefore more important here, not less.
 
-## CFG-2 — Four layers, in one order
+## CFG-2 — Two layers, in one order
 
     config/novel.config.json     the complete default
-    config/profiles/<name>.json  a partial, from --profile
-    <path>                       a partial, from --config
-    CLI flags                    the narrowest, one key at a time
+    config/profiles/<name>.json  a partial, from the profile
 
-Later layers win. `config.snapshot.json` records which layers a run used, so a
-resolved value can be traced back to the file it came from.
+Later layers win. The merged result is written to
+`output/<slug>/config.snapshot.json`, so a resolved value in a finished run can
+be traced back.
 
-Passing the packaged base to `--config` is a no-op: the loader recognises it by
-`samefile` and skips it. Re-merging it would be worse than pointless — layered
-on top of a profile it would restore the base's values and silently undo the
-profile, so `--profile tiny --config config/novel.config.json` would quietly be
-twelve chapters.
+The third and fourth layers on `main` — an arbitrary `--config` file and
+individual CLI flags — do not exist here, because there is no CLI. A one-off
+change is made by saying so in the request, and the snapshot is what records it.
 
 ## CFG-3 — Dicts merge, lists replace
 
-The merge is recursive: a profile that sets `outputs.pdf.page_size` keeps the
-base's `outputs.pdf.margins_mm`. That is the difference between an overlay and
-a replacement, and getting it wrong is how a profile silently ships a PDF with
-no margins.
+The merge is recursive: a profile that sets `novel.chapters` keeps the base's
+`novel.tone`. That is the difference between an overlay and a replacement.
 
 Lists replace wholesale, on purpose. A profile setting `outputs.formats` to
 `["markdown"]` means *only* markdown, not markdown appended to what was there.
 
-## CFG-4 — Every CLI flag is a config key
+**This one is easy to get wrong by hand**, which is exactly what the orchestrator
+now does. Merge key by key; do not replace a whole section because the profile
+mentioned it.
 
-`--chapters 3` and editing `novel.chapters` in JSON are the same change
-arriving by different routes. A flag that had no config key behind it would be
-a setting you could not record in a profile or recover from a snapshot.
+## CFG-4 — Withdrawn: every CLI flag is a config key
 
-Only flags the caller actually passed become an overlay. An absent flag
-inherits from the profile rather than overwriting it with an `argparse`
-default — which is why the flags default to `None` rather than to a value.
+There is no CLI on this branch. The rule existed so that `--chapters 3` and
+editing `novel.chapters` were the same change arriving by different routes, and
+so that a setting could not exist that a profile could not record.
 
-## CFG-5 — No config value is duplicated as a Python literal
+The spirit survives as: **anything worth changing twice belongs in a profile**,
+not in the sentence you typed at the orchestrator.
 
-If the loader carried its own fallback for, say, `max_summary_words`, there
-would be two answers to the question and the JSON would only sometimes be the
-real one.
+## CFG-5 — No config value is duplicated elsewhere
 
-### CFG-5.1 — A missing key raises
+If `SKILL.md` carried its own fallback for, say, `max_summary_words`, there would
+be two answers to the question and the JSON would only sometimes be the real one.
 
-`Config.get` raises `ConfigError` unless the caller passes an explicit default.
-A typo in a key name becomes an error at the first read instead of a silently
-wrong novel.
+Read `SKILL.md` with this in mind: it names keys, it does not quote values. The
+one number it states is a shape (`ch0N`), not a setting.
 
-The one sanctioned exception is a module-level constant used by callers that
-have no config at all — `novaforge/context.py`'s `LEAK_WINDOW` is the only one,
-and it is documented as a fallback for callers outside a run.
+### CFG-5.1 — A missing key is an error, not a default
+
+If a key the procedure needs is absent, stop and say so. Do not substitute a
+plausible number. A silently wrong novel is worse than a run that halts, and on
+this branch nothing else will catch it.
 
 ## CFG-6 — A profile is partial
 
-It states what it changes and nothing else. `tiny`, `small`, `medium` and
-`full` each declare `novel`, `context` and `budget`; only `tiny` also declares
-`outputs`, because it is the only one that changes the page size.
+It states what it changes and nothing else. `tiny`, `small`, `medium` and `full`
+each declare `novel`, `context` and `budget` and nothing more.
 
 Each carries a `_comment` saying what it is for. `_comment` keys are stripped
-before hashing, so documenting a profile does not invalidate every audit row
-that cites the old hash.
+before hashing, so documenting a profile does not change the config hash.
 
-## CFG-7 — The golden fixture is regenerated deliberately
+## CFG-7 — Withdrawn: the golden fixture is regenerated deliberately
 
-`output/golden-tiny/` is committed, and a change to the config changes it.
-Regenerate it as its own change record rather than sweeping it into an
-unrelated commit, because its value is that a diff shows exactly what moved.
+`output/golden-tiny/` was a committed run whose byte-for-byte diff showed exactly
+what a config change moved. It is deleted on this branch, because nothing here
+reproduces. It still exists on `main`.
 
-Regenerating over an existing run requires `--force`, since `logs/agents.jsonl`
-is append-only and a second run into an occupied slug would otherwise produce a
-log describing two runs as though they were one.
+This is the rule whose loss costs the most. The fixture was not a test of output
+quality — it was the mechanism that caught changes nobody thought to write a test
+for.
 
 ## CFG-8 — The config hash identifies a run
 
-A 12-hex-digit SHA-256 of the resolved config as canonical JSON — sorted keys,
-no whitespace, `_comment` stripped. The same settings hash the same on any
-machine.
+A 12-hex-digit SHA-256 of the resolved config as canonical JSON — sorted keys, no
+whitespace, `_comment` stripped. The same settings hash the same on any machine.
 
-Every audit row carries it, `state.json` records it, and `resume` refuses if it
-does not match. That is what makes "these two runs differed only in the config"
-a checkable statement rather than a claim.
+The orchestrator computes it once and writes it into `config.snapshot.json`,
+`state.json` and every row of `logs/agents.jsonl`. Its job is unchanged: to make
+"these two runs differed only in the config" a checkable statement.
+
+What is gone is the check that used it — `resume` refused to continue a run whose
+config hash had moved. Nothing refuses now.
 
 ## CFG-9 — The config owns numbers; the spec owns structure
 
-`specs/flow.yaml` decides which stages exist, their order, their `impl` and
-which may write the Story Bible. The config decides which critics are in the
-gate, what score clears it, how many drafts are allowed, how long a chapter is.
+`specs/flow.yaml` decides which stages exist, their order, which agent runs each
+one and which may write the Story Bible. The config decides which critics are in
+the gate, what score clears it, how many drafts are allowed, how long a chapter
+is.
 
-`novaforge/spec/flow.py:apply_config` is where the second overwrites the first,
-and every value it moves is recorded in `FlowSpec.substitutions` and logged as
-a `spec_substitution` row. The spec on disk is therefore not always exactly
-what ran, and the log says so.
+The config may make a gate harder or easier. It may **not** add a gate to a stage
+the spec did not gate — that is a structural change being made from the wrong
+file.
 
-The config may make a gate harder or easier. It may **not** add a gate to a
-stage the spec did not gate — that is a structural change being made from the
-wrong file.
+Where the two disagree on a shared value, the config wins and the orchestrator
+should say so in its report, the way `apply_config` used to log a
+`spec_substitution` row. The spec on disk is not always exactly what ran.
 
-## CFG-10 — The same code writes a different novel
+## CFG-10 — The same procedure writes a different novel
 
 ### CFG-10.7 — A profile change alone
 
-```bash
-python -m novaforge new "<premise>" --profile tiny  --engine mock
-python -m novaforge new "<premise>" --profile small --engine mock
-```
+Run the skill twice with the same premise, once with `tiny` and once with
+`small`: three chapters of 300–550 words, then eight of 900–1400. **No prompt and
+no procedure is edited between the two runs**, and nothing changes but the
+profile name.
 
-Three chapters of 300–550 words, then eight of 900–1400. **No Python is edited
-between the two runs**, and no argument other than the profile changes.
+That is the point of the whole config layer. If a length, a threshold or a budget
+could only be changed by editing an agent's prompt, then every one of those
+numbers would be a review instead of a setting.
 
-That is the point of the whole config layer. If a length, a threshold or a
-budget could only be changed by editing a module, then every one of those
-numbers would be a code review instead of a setting.
+## CFG-11 — Withdrawn: observability is additive, and off by default
 
-## CFG-11 — Observability is additive, and off by default
+`observability.sink` selected where a run was *also* reported, and `main` sends
+one trace per run, one generation per call and one score per verdict to Langfuse,
+with a `GuardedSink` making "a sink may never fail a run" a property of being a
+sink rather than something each implementation remembered.
 
-`observability.sink` selects where a run is *also* reported. The default is
-`"none"`, and that is the shipped configuration rather than a degraded mode:
-with it, a run imports nothing beyond the standard library and talks to no
-network, which is what keeps `dependencies = []` and ACC-1 true.
+None of that is on this branch. There is no sink, no trace, no score and no
+prompt management. What a run did is in the Claude Code transcript and in
+`logs/agents.jsonl`, and neither was designed for the job.
 
-Three rules govern anything that is switched on:
+The three rules it laid down are still the right rules, and are the thing to
+bring back first if observability returns: **it may add, never replace; it may
+never change a run; what leaves the machine is scrubbed.**
 
-**It may add, never replace.** `logs/agents.jsonl` remains the record of what a
-run did — hash-chained, verifiable offline, written either way. A trace in a
-hosted service is a row in somebody's database and can be edited; a run that
-relied on it for evidence would have traded a tamper-evident record for a
-convenient one.
+## CFG-12 — Withdrawn: prompts are managed in Langfuse
 
-**It may never change a run.** Not the artefacts, not the audit chain, not
-whether the run succeeds. `observability.base.GuardedSink` wraps every sink at
-the boundary, so the guarantee is a property of being a sink rather than
-something each implementation has to remember. An observability backend that
-could fail a novel would be a worse deal than no observability at all.
+`agents.prompt_source` was `"langfuse"`, with the `SKILL.md` files as the
+fallback that `get_prompt` takes as an argument. Editing a prompt in the
+dashboard changed the next run, with a version history and a label.
 
-**What leaves the machine is scrubbed.** A premise is user-supplied and a
-completion is model-written, and this is the only place in the program where
-either travels to a third party. The redactor that protects `state.json`
-protects this too (SEC-2.2), and the credentials come from the environment for
-the same reason the Anthropic key does (SEC-2.1).
+Here the prompt *is* the file — `.claude/agents/<name>.md` — and changing it is a
+commit. That is a real regression in how fast a prompt can be tuned, and a real
+improvement in the prompt being reviewable next to the spec it implements.
 
-## CFG-12 — Prompts are managed in Langfuse; the files are the fallback
-
-`agents.prompt_source` is `"langfuse"`. Editing a prompt there changes the next
-run, with a version history and a label — which is the reason for moving, and
-something a file in a repository cannot give you without a commit and a deploy.
-`tools/push_prompts.py` seeds them from `.claude/skills/`.
-
-**The SKILL.md files stay, with two jobs.** They are the fallback that
-`Langfuse.get_prompt` takes as an argument, because a prompt service being
-unreachable should not stop the thing it serves. And they are what
-`tools/check_specs.py` reads: the 40 traced requirements and the
-front-matter-versus-spec check are file-based, and moving the wording did not
-move what those checks are about.
-
-**Only wording moves.** Role, model and `writes_bible` are never read from
-Langfuse. Authority is decided by `specs/flow.yaml` and by the code, and
-`build_run` checks it *before* the prompt source is applied — a service that
-could grant Bible access by editing a prompt would make SEC-4.3 a suggestion.
-
-**No credentials is the same as unreachable.** Both fall back to the files and
-say so in one line. An earlier version raised for one and fell back for the
-other, so the same problem killed a run or did not, depending on when it
-happened.
+**One rule from CFG-12 survives and matters more now.** Authority is never read
+from a prompt source: whether an agent may write the Story Bible is decided by
+`specs/flow.yaml` and, on this branch, by the agent's tool list. A prompt supplies
+wording and nothing else.
 
 ---
 
 ## Where these are checked
 
-`tests/test_config.py` covers the loader; `tests/test_spec.py` covers
-`apply_config`; `tests/test_pipeline.py` covers the run-level consequences.
-`tools/check_specs.py` fails if any identifier above has no test citing it.
+Nowhere automatically. On `main`, `tests/test_config.py` covered the loader,
+`tests/test_spec.py` covered `apply_config`, and `tools/check_specs.py` failed if
+any identifier above had no test citing it.
+
+Here a reader is the check. The most useful thing to read is
+`output/<slug>/config.snapshot.json` after a run: if a number in it surprises
+you, the merge went wrong.

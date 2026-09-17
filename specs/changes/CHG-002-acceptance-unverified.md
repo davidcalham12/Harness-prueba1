@@ -1,6 +1,13 @@
 # CHG-002 — The acceptance criteria were unverified
 
-**Status:** closed. Every criterion in `specs/acceptance.md` now passes.
+> **On the `claude-orchestrator` branch, read this as history.** It records
+> something that happened to the Python implementation, which lives on `main`.
+> The files it names are not in this branch's tree. See CHG-003.
+
+**Status:** closed on `main`, where every criterion in `specs/acceptance.md`
+passes. On this branch the acceptance criteria are unverified again — by
+deliberate choice rather than by a broken shell, and `specs/acceptance.md` marks
+each one. CHG-003 is where that is argued.
 
 ## What this recorded
 

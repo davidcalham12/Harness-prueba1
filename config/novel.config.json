@@ -1,5 +1,5 @@
 {
-  "_comment": "CFG-1. The complete, authoritative default. Profiles and CLI flags overlay this; nothing here may be duplicated as a literal in Python (CFG-5.1).",
+  "_comment": "CFG-1. The complete, authoritative default. Profiles overlay this; a profile is partial and states only what it changes. The orchestrator reads this file at the start of every run and snapshots the merged result into the workspace.",
   "profile": null,
 
   "novel": {
@@ -28,12 +28,13 @@
     "mysteries": { "min": 3, "max": 5 }
   },
 
+  "_comment_context": "The bounded-context policy. forbid_prior_chapter_prose is no longer a runtime assertion over an assembled prompt: the chapter-writer subagent has its own context window and a tool list of Glob alone, which returns paths and cannot return file contents. The flag stays because it is the thing the architecture is for, and because a future orchestrator that widened the tool list should be failing a stated rule rather than quietly changing one.",
   "context": {
     "max_summary_words": 200,
-    "forbid_prior_chapter_prose": true,
-    "leak_window_words": 10
+    "forbid_prior_chapter_prose": true
   },
 
+  "_comment_gate": "Four critics, aggregated with min, so a chapter is only as good as its worst. length and chatter are arithmetic the orchestrator runs in the shell and they reproduce; continuity and science are subagents and they do not. max_revisions counts rewrites, so 2 allows three drafts.",
   "quality_gate": {
     "critics": ["continuity", "science", "length", "chatter"],
     "threshold": 8,
@@ -42,26 +43,16 @@
     "on_fail": "accept_with_warnings"
   },
 
-  "style": { "word_count_tolerance_pct": 10 },
+  "_comment_style": "The style pass may not change a word. The orchestrator compares word counts before and after and discards a pass that moved one, so this tolerance is 0 by intent, not by oversight.",
+  "style": { "word_count_tolerance_pct": 0 },
 
-  "engine": {
-    "name": "mock",
-    "model": "claude-opus-5",
-    "effort": "high",
-    "seed": 0,
-    "inject_drift": true
-  },
+  "_comment_models": "Which model each agent runs on is declared in its own .claude/agents/<name>.md front matter, not here. Putting it in two places is how the two disagree.",
 
-  "budget": { "max_cost_usd": 25.0, "max_calls": 500, "max_tokens": 5000000 },
-
-  "_comment_observability": "CFG-11. Langfuse is where a run is observed. logs/agents.jsonl is still written and still hash-chained, because a trace in a hosted service can be edited and a tamper-evident record cannot. Set the sink to none for an offline run.",
-  "observability": { "sink": "langfuse", "environment": "novaforge" },
-
-  "_comment_agents": "CFG-12. Prompt Management: the wording comes from Langfuse, the SKILL.md files are the fallback and what check_specs.py reads. Role, model and writes_bible never come from here.",
-  "agents": { "prompt_source": "langfuse", "prompt_label": "production" },
+  "_comment_budget": "Advisory only on this branch. Nothing enforces these before a call; the orchestrator states the implied call count in its plan and you decide there. The main branch enforces them.",
+  "budget": { "max_cost_usd": 25.0, "max_calls": 500 },
 
   "outputs": {
-    "formats": ["markdown", "pdf"],
+    "formats": ["markdown"],
     "synopsis": {
       "words": { "min": 150, "max": 250 },
       "comparables": { "min": 2, "max": 3 }
@@ -71,17 +62,6 @@
       "single_file": true,
       "include_bible_appendix": false,
       "include_synopsis": true
-    },
-    "pdf": {
-      "filename": "book.pdf",
-      "page_size": "a4",
-      "font_size_pt": 10.5,
-      "line_height": 1.35,
-      "margins_mm": { "top": 20, "bottom": 20, "inner": 18, "outer": 16 },
-      "page_numbers": true,
-      "chapter_on_new_page": true,
-      "include_synopsis": false,
-      "shrink_to_fit": true
     }
   }
 }

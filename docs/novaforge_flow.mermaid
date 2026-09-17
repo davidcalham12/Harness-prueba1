@@ -1,6 +1,6 @@
 %% NovaForge pipeline.
 %% This diagram is documentation. The executable version is specs/flow.yaml,
-%% which the orchestrator loads and runs; if the two ever disagree, the YAML is
+%% which the orchestrator reads and executes; if the two ever disagree, the YAML is
 %% what actually happens and this file is the bug.
 flowchart TD
     subgraph SPEC["loaded at run time"]
@@ -23,9 +23,9 @@ flowchart TD
         CTX["context for this chapter only:<br/>Story Bible + this outline entry +<br/>capped rolling summary<br/><b>never prior chapter prose</b>"]
         CTX --> WRITE["<b>Chapter Writer</b>"]
         WRITE --> DRAFT[/"draft"/]
-        DRAFT --> C1["Continuity Critic<br/><i>model</i>"]
-        DRAFT --> C2["Science Auditor<br/><i>model</i>"]
-        DRAFT --> C3["Length Critic<br/><i>pure code</i>"]
+        DRAFT --> C1["continuity-critic<br/><i>subagent</i>"]
+        DRAFT --> C2["science-critic<br/><i>subagent</i>"]
+        DRAFT --> C3["Length + Chatter<br/><i>orchestrator arithmetic</i>"]
         C1 --> GATE{"min(scores) &ge;<br/>quality_gate.threshold?"}
         C2 --> GATE
         C3 --> GATE
@@ -41,10 +41,9 @@ flowchart TD
     FINAL --> F6
     F6["<b>FLOW-6 Publisher</b>"] --> SYN["synopsis<br/><i>model</i>"]
     F6 --> MD[("dist/book.md")]
-    F6 --> PDF[("dist/book.pdf")]
     SYN -.->|carried inside| MD
 
-    AUDIT[["logs/agents.jsonl<br/>hash-chained, one row per call,<br/>each carrying flow_id + config_hash"]]
+    AUDIT[["logs/agents.jsonl<br/>one row per subagent call.<br/><b>not hash-chained on this branch</b>"]]
     F1 -.-> AUDIT
     F2 -.-> AUDIT
     F3 -.-> AUDIT
@@ -55,12 +54,11 @@ flowchart TD
     FLOWYAML -.->|stage order| LOOP
     CONFIG -.->|thresholds, bands| GATE
     CONFIG -.->|wrap width| MD
-    CONFIG -.->|wrap width, page| PDF
     CONFIG -.->|bands| C3
 
     classDef canon fill:#e8f0fb,stroke:#3b6ea5,color:#12263f;
     classDef artefact fill:#f3f0e8,stroke:#9a7d3b,color:#2f2712;
     classDef spec fill:#eef7ee,stroke:#4a8a4a,color:#153015;
     class WORLD,CAST,OUTLINE,FINAL canon;
-    class MD,PDF artefact;
+    class MD artefact;
     class FLOWYAML,CONFIG spec;

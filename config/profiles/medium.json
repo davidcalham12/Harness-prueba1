@@ -10,5 +10,5 @@
     "chars_per_line": { "max": 84 }
   },
   "context": { "max_summary_words": 260 },
-  "budget": { "max_cost_usd": 60.0, "max_calls": 900, "max_tokens": 12000000 }
+  "budget": { "max_cost_usd": 60.0, "max_calls": 900 }
 }
