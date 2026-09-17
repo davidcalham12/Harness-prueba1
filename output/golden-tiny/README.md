@@ -89,6 +89,12 @@ python -c "import json,sys;[print(json.dumps({k:v for k,v in json.loads(l).items
 A fifth varying field would be a bug, and `test_only_the_wall_clock_fields_differ`
 fails if one appears.
 
+`state.json` has one of its own: `run_id`, which identifies this *attempt*
+rather than this novel. It is deliberately unique per run — that is what
+gives a replaced run its own Langfuse trace instead of piling into the
+previous one's — and a value that exists to be different cannot also be
+reproducible.
+
 ### Checking the chain yourself
 
 ```bash

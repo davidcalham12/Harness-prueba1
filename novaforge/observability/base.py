@@ -26,7 +26,7 @@ class RunSink(Protocol):
     name: str
 
     def start_run(self, *, slug: str, premise: str, config_hash: str,
-                  metadata: Mapping[str, Any]) -> None: ...
+                  run_id: str, metadata: Mapping[str, Any]) -> None: ...
 
     def record_call(self, *, flow_id: str, role: str, kind: str, model: str,
                     system: str, prompt: str, output: str,

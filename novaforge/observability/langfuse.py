@@ -104,15 +104,17 @@ class LangfuseSink:
     # -- the interface ---------------------------------------------------
 
     def start_run(self, *, slug: str, premise: str, config_hash: str,
-                  metadata: Mapping[str, Any]) -> None:
+                  run_id: str, metadata: Mapping[str, Any]) -> None:
         def go() -> None:
             from langfuse import Langfuse
 
             self._slug = slug
-            # Seeded from the run's identity so the same run keeps the same
-            # trace id across a resume, and a resumed run extends its trace
-            # rather than starting a second one beside it.
-            self._trace_id = Langfuse.create_trace_id(seed=f"{slug}|{config_hash}")
+            # Seeded from the attempt, not the novel. A resume carries the
+            # same run_id and extends this trace; a replaced run brings a
+            # new one. Seeding from slug and config alone put three
+            # `--force` runs into a single trace with everything piled in.
+            self._trace_id = Langfuse.create_trace_id(
+                seed=run_id or f"{slug}|{config_hash}")
             # In SDK v4 the trace takes its name from its root observation, and
             # there is no public way to set trace-level tags: `update_trace` was
             # a v3 method and the only v4 route is a private one. So everything

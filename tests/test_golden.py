@@ -31,6 +31,12 @@ GOLDEN = package_root() / "output" / "golden-tiny"
 # opposite of what the chain is for.
 WALL_CLOCK_FIELDS = {"ts", "elapsed_s", "hash", "prev"}
 
+# `run_id` identifies one *attempt*. It is deliberately unique per run, so
+# that a replaced run gets its own Langfuse trace rather than piling into
+# the previous one's. A value that exists to be different cannot also be
+# reproducible, so state.json is compared without it.
+PER_ATTEMPT_FIELDS = {"run_id"}
+
 pytestmark = pytest.mark.skipif(
     not (GOLDEN / "state.json").exists(),
     reason="golden-tiny has not been generated; see output/golden-tiny/README.md",
@@ -134,7 +140,17 @@ class TestItReproduces:
         "critiques/ch02.continuity.json", "state.json", "config.snapshot.json",
     ])
     def test_a_fresh_run_reproduces_the_file_byte_for_byte(self, fresh, name):
-        assert fresh.read_text(name) == (GOLDEN / name).read_text(encoding="utf-8")
+        mine = fresh.read_text(name)
+        theirs = (GOLDEN / name).read_text(encoding="utf-8")
+        if name == "state.json":
+            # Everything except the per-attempt identity.
+            a, b = json.loads(mine), json.loads(theirs)
+            for field in PER_ATTEMPT_FIELDS:
+                a.pop(field, None)
+                b.pop(field, None)
+            assert a == b
+            return
+        assert mine == theirs
 
     def test_the_audit_log_matches_apart_from_wall_clock_fields(self, fresh):
         mine = read_rows(fresh.root / "logs" / "agents.jsonl")
@@ -153,6 +169,15 @@ class TestItReproduces:
         from novaforge.security.sandbox import Workspace
 
         assert AuditChain(Workspace(GOLDEN, create=False)).verify().intact
+
+    def test_the_run_id_is_the_only_thing_state_json_cannot_reproduce(self, fresh):
+        """Named, so a second unreproducible field is a test failure rather
+        than something a reader has to spot in a diff."""
+        mine = json.loads(fresh.read_text("state.json"))
+        theirs = json.loads((GOLDEN / "state.json").read_text(encoding="utf-8"))
+        differing = {k for k in mine if mine[k] != theirs.get(k)}
+        assert differing <= PER_ATTEMPT_FIELDS, differing
+        assert mine["run_id"] != theirs["run_id"]
 
     def test_only_the_wall_clock_fields_differ(self, fresh):
         """Named explicitly so that a third varying field is a test failure

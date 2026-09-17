@@ -135,6 +135,46 @@ class TestTheSinkCanBeHeard:
         assert any("environment=staging" in line for line in said), said
 
 
+class TestOneTracePerAttempt:
+    """A resumed run extends its trace; a replaced run gets a new one.
+
+    Seeded from slug and config hash alone, three `new --force` runs all landed
+    in one trace with everything piled into it — the same defect the audit
+    chain had, which is why `--force` resyncs the chain. Found by reading three
+    trace URLs in a real terminal and noticing they were identical.
+    """
+
+    def test_a_fresh_run_gets_its_own_id(self, tmp_path):
+        a, _, _ = run_novel(tmp_path / "a", slug="r")
+        b, _, _ = run_novel(tmp_path / "b", slug="r")
+        assert a.state.run_id and b.state.run_id
+        assert a.state.run_id != b.state.run_id
+
+    def test_a_resumed_run_keeps_the_one_it_had(self, tmp_path):
+        first, state, _ = run_novel(tmp_path, slug="res")
+        original = state.run_id
+        _, resumed, _ = run_novel(tmp_path, slug="res", resume=True)
+        assert resumed.run_id == original
+
+    def test_it_survives_in_state_json(self, tmp_path):
+        import json
+
+        _, state, space = run_novel(tmp_path, slug="persist")
+        assert json.loads(space.read_text("state.json"))["run_id"] == state.run_id
+
+    def test_the_sink_is_told_which_attempt_this_is(self, tmp_path):
+        seen: list[str] = []
+
+        class _Watching(NullSink):
+            name = "watching"
+
+            def start_run(self, *, run_id, **_):
+                seen.append(run_id)
+
+        _, state, _ = run_novel(tmp_path, slug="told", sink=_Watching())
+        assert seen == [state.run_id]
+
+
 class TestTheInterface:
     def test_the_null_sink_satisfies_it(self):
         assert isinstance(NullSink(), RunSink)

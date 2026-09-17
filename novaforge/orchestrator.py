@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -55,6 +56,11 @@ class RunState:
     slug: str
     premise: str
     config_hash: str
+    # Identifies this *attempt*, not this novel. A resume keeps it, so a
+    # resumed run extends its trace; `new --force` replaces the run and gets
+    # a new one, so three replacements are three traces rather than one with
+    # everything piled into it. The audit chain learned this lesson first.
+    run_id: str = ""
     stage: str = "pending"
     completed_stages: list[str] = field(default_factory=list)
     chapters: list[dict[str, Any]] = field(default_factory=list)
@@ -69,6 +75,7 @@ class RunState:
             "slug": self.slug,
             "premise": self.premise,
             "config_hash": self.config_hash,
+            "run_id": self.run_id,
             "stage": self.stage,
             "completed_stages": list(self.completed_stages),
             "chapters": list(self.chapters),
@@ -85,6 +92,7 @@ class RunState:
             slug=str(data["slug"]),
             premise=str(data.get("premise", "")),
             config_hash=str(data.get("config_hash", "")),
+            run_id=str(data.get("run_id", "")),
             stage=str(data.get("stage", "pending")),
         )
         state.completed_stages = list(data.get("completed_stages", []))
@@ -126,23 +134,23 @@ class Orchestrator:
         self.report = lambda line: report(self.redactor.scrub(str(line)))
         self._injection_hits = 0
         self._bible = FileBible(workspace, on_write=self._on_bible_write)
-        self.state = RunState(slug=slug, premise=premise, config_hash=config.hash)
+        self.state = RunState(slug=slug, premise=premise, config_hash=config.hash,
+                              run_id=uuid.uuid4().hex)
         # Agents are data too. Loading here rather than in each stage means a
         # missing or contradictory skill stops the run before the first call,
         # not three stages in.
         self.agents = agents if agents is not None else load_agents()
         self.agents.check_against_flow(spec)
         # Additive, never authoritative: the chain below is the record, this
-        # is a copy for looking at. Defaults to a sink that does nothing, so
-        # an unconfigured run is the offline run it always was.
-        # Wrapped whoever supplied it. The guarantee that a sink cannot fail
-        # a run belongs at this boundary, not inside each implementation -
-        # otherwise it protects only the sinks that remembered to ask.
-        # The reporter has to reach the sink itself, not only the guard around
-        # it. Built without one, a LangfuseSink keeps its own `safely` calls -
-        # so its trace URL never printed and, worse, a failed call to Langfuse
-        # was invisible. The package's stated rule is "reported rather than
-        # swallowed silently", and the wiring made it silent.
+        # is a copy for looking at.
+        #
+        # Wrapped whoever supplied it, because "a sink cannot fail a run"
+        # belongs at this boundary rather than inside each implementation -
+        # otherwise it protects only the sinks that remembered to ask. And
+        # the reporter reaches the sink *itself*, not only the guard: built
+        # without one, a LangfuseSink kept its own `safely` calls pointed at
+        # a no-op, so a failed call to Langfuse looked exactly like a
+        # successful one.
         self.sink = GuardedSink(
             sink if sink is not None else build_sink(
                 config.get("observability.sink", default=None),
@@ -277,6 +285,7 @@ class Orchestrator:
 
         self.sink.start_run(
             slug=self.slug, premise=self.premise, config_hash=self.config.hash,
+            run_id=self.state.run_id,
             metadata={"profile": self.config.get("profile", default=None),
                       "engine": getattr(self.engine, "name", "unknown"),
                       "model": self.engine.model,
