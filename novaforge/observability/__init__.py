@@ -31,6 +31,13 @@ def build_sink(name: str | None = None, **options):
     key = (name or "none").strip().lower()
     if key in ("", "none", "off"):
         return NullSink()
+    if key == "talkative":
+        # A sink used by the tests through the real build path, so that
+        # "the orchestrator passes a reporter" is checked where it
+        # actually matters rather than by reading the source.
+        from .base import TalkativeSink
+
+        return TalkativeSink(**options)
     if key == "langfuse":
         from .langfuse import LangfuseSink, MissingLangfuse
 

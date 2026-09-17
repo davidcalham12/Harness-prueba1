@@ -131,7 +131,7 @@ refuses to start if a skill and `flow.yaml` disagree.
 ## Try it
 
 ```bash
-python -m pytest -q                  # 790 tests, ~52 seconds
+python -m pytest -q                  # 793 tests, ~52 seconds
 python tools/check_specs.py          # specs, skills and tests still agree
 python -m novaforge new "your premise here" --profile tiny --engine mock
 python -m novaforge status <slug>

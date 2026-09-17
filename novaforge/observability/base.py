@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 
-__all__ = ["GuardedSink", "NullSink", "RunSink", "safely"]
+__all__ = ["GuardedSink", "NullSink", "RunSink", "TalkativeSink", "safely"]
 
 
 @runtime_checkable
@@ -100,6 +100,25 @@ class GuardedSink:
             return self.inner.url()
         except Exception:  # noqa: BLE001 - a URL is a convenience, never a failure
             return None
+
+
+class TalkativeSink(NullSink):
+    """A sink that says one line when a run starts. Exists to be heard.
+
+    Built through the same `build_sink` path as every other sink, so a test can
+    check that the orchestrator hands over a reporter and the configured
+    environment - the two things that were quietly missing.
+    """
+
+    name = "talkative"
+
+    def __init__(self, *, report: Callable[[str], None] | None = None,
+                 environment: str = "novaforge", **_: Any) -> None:
+        self._report = report or (lambda _: None)
+        self._environment = environment
+
+    def start_run(self, **_: Any) -> None:
+        self._report(f"  talkative sink speaking, environment={self._environment}")
 
 
 def safely(action: Callable[[], None], *, on_error: Callable[[str], None] | None = None) -> None:

@@ -138,9 +138,17 @@ class Orchestrator:
         # Wrapped whoever supplied it. The guarantee that a sink cannot fail
         # a run belongs at this boundary, not inside each implementation -
         # otherwise it protects only the sinks that remembered to ask.
+        # The reporter has to reach the sink itself, not only the guard around
+        # it. Built without one, a LangfuseSink keeps its own `safely` calls -
+        # so its trace URL never printed and, worse, a failed call to Langfuse
+        # was invisible. The package's stated rule is "reported rather than
+        # swallowed silently", and the wiring made it silent.
         self.sink = GuardedSink(
             sink if sink is not None else build_sink(
-                config.get("observability.sink", default=None)),
+                config.get("observability.sink", default=None),
+                report=self.report,
+                environment=config.get("observability.environment",
+                                       default="novaforge")),
             report=self.report)
         self._chain = AuditChain(workspace)
         self._budget = BudgetGuard(Budget.from_config(config))

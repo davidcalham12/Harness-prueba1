@@ -107,6 +107,34 @@ class TestASinkNeverChangesARun:
         assert space_a.read_text("dist/book.md") == space_b.read_text("dist/book.md")
 
 
+class TestTheSinkCanBeHeard:
+    """A sink that cannot report is a sink whose failures are invisible.
+
+    The orchestrator built one with no reporter, so `LangfuseSink`'s own
+    `safely` calls went nowhere: its trace URL never printed, and a failed call
+    to Langfuse looked exactly like a successful one. Found by running against
+    a real project and noticing the URL line was missing — the failure mode was
+    silence, which is the only failure mode nobody notices.
+    """
+
+    def test_the_orchestrator_hands_the_reporter_to_the_sink_itself(self, tmp_path):
+        said: list[str] = []
+        run_novel(tmp_path, slug="heard", report=said.append,
+                  overrides={"observability": {"sink": "talkative"}})
+        assert any("talkative sink speaking" in line for line in said), said
+
+    def test_a_sink_built_without_options_still_works(self):
+        """The default path must not depend on being handed anything."""
+        assert isinstance(build_sink("none"), NullSink)
+
+    def test_the_configured_environment_reaches_the_sink(self, tmp_path):
+        said: list[str] = []
+        run_novel(tmp_path, slug="envt", report=said.append,
+                  overrides={"observability": {"sink": "talkative",
+                                               "environment": "staging"}})
+        assert any("environment=staging" in line for line in said), said
+
+
 class TestTheInterface:
     def test_the_null_sink_satisfies_it(self):
         assert isinstance(NullSink(), RunSink)
