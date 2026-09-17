@@ -32,9 +32,19 @@ def build_sink(name: str | None = None, **options):
     if key in ("", "none", "off"):
         return NullSink()
     if key == "langfuse":
-        from .langfuse import LangfuseSink
+        from .langfuse import LangfuseSink, MissingLangfuse
 
-        return LangfuseSink(**options)
+        try:
+            return LangfuseSink(**options)
+        except MissingLangfuse as exc:
+            # Configured but unusable is the same as unreachable, and a
+            # dashboard that cannot be reached must not stop a novel. Said
+            # out loud, because an operator who believes a run is traced
+            # and finds nothing later is worse off than one who was told.
+            report = options.get("report")
+            if report:
+                report(f"  trace: not sending. {exc}")
+            return NullSink()
     raise ValueError(
         f"unknown observability sink {name!r}; have 'none' and 'langfuse'"
     )

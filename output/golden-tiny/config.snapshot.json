@@ -1,11 +1,15 @@
 {
-  "config_hash": "bfd93a1350cb",
+  "config_hash": "ca78bc7a4e92",
   "layers": [
     "config/novel.config.json",
     "config/profiles/tiny.json",
     "cli"
   ],
   "resolved": {
+    "agents": {
+      "prompt_label": "production",
+      "prompt_source": "langfuse"
+    },
     "bible": {
       "characters": {
         "max": 7,
@@ -88,7 +92,7 @@
     },
     "observability": {
       "environment": "novaforge",
-      "sink": "none"
+      "sink": "langfuse"
     },
     "outputs": {
       "formats": [

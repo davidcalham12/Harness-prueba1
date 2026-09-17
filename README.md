@@ -131,7 +131,7 @@ refuses to start if a skill and `flow.yaml` disagree.
 ## Try it
 
 ```bash
-python -m pytest -q                  # 765 tests, offline, ~48 seconds
+python -m pytest -q                  # 784 tests, ~50 seconds
 python tools/check_specs.py          # specs, skills and tests still agree
 python -m novaforge new "your premise here" --profile tiny --engine mock
 python -m novaforge status <slug>
@@ -188,29 +188,44 @@ python -c "from novaforge.security.audit import AuditChain; from novaforge.secur
 # chain intact (31 rows, hash chain)
 ```
 
-## Watching a run in Langfuse
+## Langfuse
 
-Off by default, and that is the shipped configuration rather than a degraded
-mode: with it, a run imports nothing beyond the standard library.
+The project has moved to Langfuse for two things: **observing runs** and
+**managing prompts**.
 
 ```powershell
 pip install "novaforge[langfuse]"
 $env:LANGFUSE_PUBLIC_KEY = "pk-lf-..."
 $env:LANGFUSE_SECRET_KEY = "sk-lf-..."
 
-python -m novaforge new "your premise" --profile tiny --engine mock --trace langfuse
+python tools\push_prompts.py --push          # seed the 8 prompts
+python -m novaforge new "your premise" --profile tiny --engine mock
 ```
 
 One trace per run, one generation per model call, one score per critic verdict.
 That mapping is not a design decision so much as a recognition: the audit log
 already had exactly those three shapes.
 
-Three rules, spelled out in `specs/CONFIG-SPEC.md` § CFG-11. A sink **adds and
-never replaces** — `logs/agents.jsonl` stays the record, because a trace in a
-hosted service is a row in somebody's database and can be edited. A sink **can
-never fail a run**; `GuardedSink` wraps every one of them at the boundary. And
-**what leaves the machine is scrubbed**, by the same redactor that protects
-`state.json`.
+**Two things did not move, and the reasons are in `specs/CONFIG-SPEC.md`
+§ CFG-11 and § CFG-12.**
+
+`logs/agents.jsonl` is still written and still hash-chained. A trace in a
+hosted service is a row in somebody's database and can be edited; the file on
+disk can be verified. Langfuse is where a run is *looked at*; the chain is
+where it is *proved*.
+
+`.claude/skills/` still holds the prompts, now as the fallback rather than the
+source. Langfuse's own `get_prompt` takes a fallback argument, because a prompt
+service being unreachable should not stop the thing it serves. Those files are
+also what `tools/check_specs.py` reads to trace 41 requirements — and **only
+wording moved**: role, model and `writes_bible` are never read from Langfuse,
+because a service that could grant Story Bible access by editing a prompt would
+make SEC-4.3 a suggestion.
+
+**Without credentials everything still runs.** Prompts come from the files, no
+trace is sent, and the run says so in one line. Set `observability.sink` to
+`"none"` and `agents.prompt_source` to `"file"` for the fully offline
+configuration the project shipped with.
 
 ## Adding an agent
 

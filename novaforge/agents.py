@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
+from .prompts import FilePrompts, build_prompt_source
 from .spec.miniyaml import YamlError, safe_load
 
 __all__ = ["Agent", "AgentError", "AgentRegistry", "load_agents"]
@@ -56,6 +57,21 @@ class Agent:
     def placeholders(self) -> frozenset[str]:
         """The ``{name}`` slots the prompt expects the caller to fill."""
         return frozenset(_PLACEHOLDER.findall(self.prompt))
+
+    def with_source(self, source: Any) -> "Agent":
+        """This agent, taking its wording from ``source``.
+
+        Only the prompt moves. Role, model and ``writes_bible`` stay as the
+        file and the flow spec declared them, because authority is a
+        repository fact and never something a remote service supplies
+        (SEC-4.3).
+        """
+        text = source.get(self.name, self.prompt)
+        if text == self.prompt:
+            return self
+        from dataclasses import replace as _replace
+        return _replace(self, prompt=text,
+                        source=f"{self.source} via {source.describe(self.name)}")
 
     def system(self, **values: Any) -> str:
         """The system prompt with its placeholders filled.
@@ -159,6 +175,12 @@ class AgentRegistry:
                 f".claude/skills/{role}/SKILL.md"
             )
         return self._agents[role]
+
+    def with_prompt_source(self, source: Any) -> "AgentRegistry":
+        """A registry whose agents take their wording from ``source``."""
+        return AgentRegistry({role: agent.with_source(source)
+                              for role, agent in self._agents.items()},
+                             root=self.root)
 
     @property
     def shipping(self) -> tuple[Agent, ...]:

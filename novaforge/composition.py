@@ -30,6 +30,7 @@ from .config import Config, load_config, package_root
 from .engines import build_engine
 from .engines.base import Engine
 from .orchestrator import Orchestrator, derive_slug
+from .prompts import build_prompt_source
 from .security.sandbox import Workspace
 from .security.secrets import Redactor
 from .security.validation import validate_premise, validate_slug
@@ -121,8 +122,14 @@ def build_run(
 
     agents = load_agents(base)
     # SEC-4.3. Checked here, not inside the orchestrator, so that a caller
-    # building a run to inspect it finds out immediately.
+    # building a run to inspect it finds out immediately. Checked *before*
+    # the prompt source is applied, because authority comes from the files
+    # and the spec and never from wherever the wording came from.
     agents.check_against_flow(spec)
+    agents = agents.with_prompt_source(build_prompt_source(
+        config.get("agents.prompt_source", default=None),
+        label=config.get("agents.prompt_label", default="production"),
+        report=report))
 
     engine = build_engine(
         engine_name or config.get("engine.name"),

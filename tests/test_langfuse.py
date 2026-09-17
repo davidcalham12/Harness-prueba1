@@ -37,20 +37,26 @@ class TestItFailsHelpfully:
     def test_missing_credentials_say_what_to_set(self, monkeypatch):
         """And say *where*: the environment, for the same reason SEC-2.1 gives
         for the Anthropic key."""
-        from novaforge.observability.langfuse import MissingLangfuse
+        from novaforge.observability.langfuse import LangfuseSink, MissingLangfuse
 
         monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
         monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
+        # The sink itself refuses, naming what to set...
         with pytest.raises(MissingLangfuse, match="LANGFUSE_PUBLIC_KEY"):
-            build_sink("langfuse")
+            LangfuseSink()
+        # ...and build_sink turns that into silence plus a line, because a
+        # missing dashboard must not stop a novel.
+        said: list[str] = []
+        build_sink("langfuse", report=said.append)
+        assert said and "LANGFUSE_PUBLIC_KEY" in said[0]
 
     @needs_sdk
     def test_the_message_offers_the_way_out(self, monkeypatch):
-        from novaforge.observability.langfuse import MissingLangfuse
+        from novaforge.observability.langfuse import LangfuseSink, MissingLangfuse
 
         monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
         with pytest.raises(MissingLangfuse, match="environment"):
-            build_sink("langfuse")
+            LangfuseSink()
 
 
 class TestSecretsNeverLeaveTheMachine:

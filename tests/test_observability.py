@@ -24,13 +24,27 @@ from novaforge.observability import NullSink, RunSink, build_sink
 from novaforge.observability.base import safely
 
 
-class TestTheDefaultIsOff:
-    def test_the_shipped_config_sends_nothing(self):
-        """CFG-11 — off by default, and that is the shipped configuration
-        rather than a degraded mode: with it a run imports nothing beyond
-        the standard library and talks to no network."""
-        assert load_config().get("observability.sink") == "none"
-        assert load_config(profile="tiny").get("observability.sink") == "none"
+class TestTheDefault:
+    def test_the_shipped_config_sends_runs_to_langfuse(self):
+        """CFG-11 — the project has moved to Langfuse, so that is the
+        default. Turning it off is a config change, not the other way
+        round."""
+        assert load_config().get("observability.sink") == "langfuse"
+        assert load_config(profile="tiny").get("observability.sink") == "langfuse"
+
+    def test_it_can_still_be_turned_off_for_an_offline_run(self):
+        config = load_config(profile="tiny",
+                             overrides={"observability": {"sink": "none"}})
+        assert isinstance(build_sink(config.get("observability.sink")), NullSink)
+
+    def test_langfuse_without_credentials_degrades_to_silence(self, monkeypatch):
+        """CFG-11 — configured but unusable is the same as unreachable, and
+        a dashboard that cannot be reached must not stop a novel."""
+        monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
+        monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
+        said: list[str] = []
+        assert isinstance(build_sink("langfuse", report=said.append), NullSink)
+        assert said and "not sending" in said[0]
 
     @pytest.mark.parametrize("name", [None, "", "none", "off", "NONE"])
     def test_every_way_of_saying_off(self, name):
@@ -42,8 +56,10 @@ class TestTheDefaultIsOff:
         with pytest.raises(ValueError, match="unknown observability sink"):
             build_sink("langfsue")
 
-    def test_the_sdk_is_not_imported_unless_it_is_asked_for(self):
-        """`dependencies = []` stays true because of this."""
+    def test_the_sdk_is_not_imported_at_module_load(self):
+        """Importing the package must not import Langfuse. The SDK is
+        reached only when a run is built, so `import novaforge` stays as
+        cheap and as dependency-free as it ever was."""
         import subprocess
         import sys
 

@@ -162,6 +162,30 @@ either travels to a third party. The redactor that protects `state.json`
 protects this too (SEC-2.2), and the credentials come from the environment for
 the same reason the Anthropic key does (SEC-2.1).
 
+## CFG-12 — Prompts are managed in Langfuse; the files are the fallback
+
+`agents.prompt_source` is `"langfuse"`. Editing a prompt there changes the next
+run, with a version history and a label — which is the reason for moving, and
+something a file in a repository cannot give you without a commit and a deploy.
+`tools/push_prompts.py` seeds them from `.claude/skills/`.
+
+**The SKILL.md files stay, with two jobs.** They are the fallback that
+`Langfuse.get_prompt` takes as an argument, because a prompt service being
+unreachable should not stop the thing it serves. And they are what
+`tools/check_specs.py` reads: the 40 traced requirements and the
+front-matter-versus-spec check are file-based, and moving the wording did not
+move what those checks are about.
+
+**Only wording moves.** Role, model and `writes_bible` are never read from
+Langfuse. Authority is decided by `specs/flow.yaml` and by the code, and
+`build_run` checks it *before* the prompt source is applied — a service that
+could grant Bible access by editing a prompt would make SEC-4.3 a suggestion.
+
+**No credentials is the same as unreachable.** Both fall back to the files and
+say so in one line. An earlier version raised for one and fell back for the
+other, so the same problem killed a run or did not, depending on when it
+happened.
+
 ---
 
 ## Where these are checked
