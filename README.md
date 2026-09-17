@@ -150,10 +150,34 @@ chapters/      chNN.md, chNN.summary.md, chNN.final.md
 critiques/     chNN.<critic>.json — every iteration, not just the last
 synopsis.md
 dist/book.md
-logs/          agents.jsonl, one row per subagent call
+logs/          agents.jsonl, one row per subagent call with its token count
 state.json     resumable
 config.snapshot.json
 ```
+
+## Watching what a run costs
+
+```bash
+python tools/export_to_langfuse.py output/<slug> --dry-run   # no keys, no network
+python tools/export_to_langfuse.py output/<slug>             # ship it
+```
+
+One trace per run, one generation per subagent call carrying its token count,
+one score per critic. Credentials come from the environment only —
+`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_BASE_URL`, which
+must name your project's region because the SDK otherwise defaults to the EU.
+
+**Cost is bounded, not computed.** The harness reports one token total per
+subagent call with no input/output split, so the export sends both exact bounds
+— every token at the input rate, every token at the output rate — plus an
+estimate between them that rests on `assumed_input_share` in
+`config/pricing.json`. The rates there are a snapshot a human pasted, not a
+live feed.
+
+The first real run came to 281,202 tokens, and the interesting part is where
+they went: **the two model critics took 51% of the run**, more than the writer,
+the worldbuilder and the outline together. That is the price of a gate whose
+judges are models, and it is not visible from the manuscript.
 
 No PDF. That was `novaforge/export/pdf.py`, which wrote A5 pages against real
 Helvetica metrics with no dependency, and it went with the package.
@@ -189,8 +213,9 @@ specs/agents/             one spec per agent, with traced AGT-* requirements
 specs/acceptance.md       ACC-1..ACC-11, each marked with how it is established
 specs/CONFIG-SPEC.md      CFG-1..CFG-12, two of them withdrawn
 specs/changes/            CHG-001..CHG-003, including this refactor
-config/                   the base config and four profiles
-tools/                    export_to_langfuse.py, ships a finished run to Langfuse
+config/                   the base config, four profiles and pricing.json
+tools/                    export_to_langfuse.py, backfill_tokens.py
+config/pricing.json       model rates, and the one assumption behind cost
 docs/                     the pipeline diagram
 SECURITY.md               six layers, compared against main line by line
 ```

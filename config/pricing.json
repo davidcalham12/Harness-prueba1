@@ -1,0 +1,16 @@
+{
+  "_comment": "CFG-13. Model rates in US dollars per million tokens, used only by tools/export_to_langfuse.py to turn token counts into a cost estimate. Nothing in a run reads this file, and no run is stopped by it — the budget block in novel.config.json is advisory on this branch.",
+
+  "_source": "https://platform.claude.com/docs/en/about-claude/pricing, read 2026-09-17. Rates change; this file is a snapshot a human pasted, not a live feed. If a cost in the dashboard looks wrong, check here first.",
+
+  "_comment_estimate": "The orchestrator records ONE token figure per subagent call, because that is all the harness reports — there is no input/output split. Cost therefore cannot be computed, only bounded. assumed_input_share is the knob: 0.85 says treat 85% of a call's tokens as input, which is roughly right for this workload because every prompt carries the whole Story Bible and every reply is a few hundred words. The exporter sends the resulting estimate AND both bounds, so a reader can see how much of the number is arithmetic and how much is this assumption.",
+  "assumed_input_share": 0.85,
+
+  "models": {
+    "claude-opus-5":   { "input_per_mtok": 5.0,  "output_per_mtok": 25.0 },
+    "claude-sonnet-5": { "input_per_mtok": 2.0,  "output_per_mtok": 10.0 },
+    "claude-haiku-4-5": { "input_per_mtok": 1.0, "output_per_mtok": 5.0 }
+  },
+
+  "_comment_unknown": "A model with no entry here is exported with its token count and no cost, rather than with a guessed rate. An absent cost is a gap a reader can see; a wrong one is not."
+}

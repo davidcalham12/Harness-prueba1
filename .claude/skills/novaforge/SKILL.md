@@ -150,6 +150,26 @@ Append one row per subagent call to `logs/agents.jsonl`: timestamp, stage, agent
 chapter, iteration, verdict. Update `state.json` after each chapter so an
 interrupted run can be resumed from the last accepted one rather than restarted.
 
+**Record `tokens` and `model` on every agent row, for every stage.** The Agent
+tool reports `subagent_tokens` in its result, and a task notification repeats it;
+take the figure from there and write it down. `model` is the `model:` line in
+that agent's `.claude/agents/<name>.md`.
+
+Three things about that figure, because getting them wrong makes the numbers
+worse than absent:
+
+- **It is cumulative across a resume.** An agent sent back for a redraft reports
+  the running total for the whole agent, not the cost of the second attempt. Log
+  the *difference* from its previous total, so each row is one attempt.
+- **It is a single total**, with no input/output split. Do not invent one.
+- **A blocked or wasted call still costs.** Log it with its tokens and the reason
+  it produced nothing. The first run of this pipeline spent 17,479 tokens on a
+  rewrite the Write tool refused, and that is exactly the kind of number a
+  dashboard exists to surface.
+
+Without these fields `tools/export_to_langfuse.py` ships the run with no usage
+and no cost, and there is nothing to observe.
+
 ## 5. FLOW-5 — style
 
 For each approved chapter, dispatch `style-editor` with the chapter text.

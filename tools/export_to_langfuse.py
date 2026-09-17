@@ -87,6 +87,48 @@ class Scrubber:
         return out
 
 
+def load_pricing(root: Path) -> dict:
+    """`config/pricing.json`, or an empty table.
+
+    Absent pricing is not an error. A generation then goes up with its token
+    count and no cost, which is a gap a reader can see rather than a number
+    they would have to distrust.
+    """
+    path = root / "config" / "pricing.json"
+    if not path.exists():
+        return {"models": {}, "assumed_input_share": None}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return {"models": data.get("models") or {},
+            "assumed_input_share": data.get("assumed_input_share"),
+            "source": data.get("_source", "")}
+
+
+def cost_of(tokens: int, model: str, pricing: dict) -> dict | None:
+    """What a call cost, as an estimate with both bounds.
+
+    The harness reports one token figure per subagent call and does not split
+    it into input and output, so this cannot be computed — only bounded. The
+    bounds are real: every token at the input rate, and every token at the
+    output rate. The estimate between them rests on `assumed_input_share`,
+    which lives in the config because it is a judgement, not a measurement.
+
+    Returning all three is the point. A reader who only sees the estimate has
+    no way to tell how much of it is arithmetic.
+    """
+    rates = (pricing.get("models") or {}).get(model)
+    share = pricing.get("assumed_input_share")
+    if not rates or share is None or not tokens:
+        return None
+
+    per_input = rates["input_per_mtok"] / 1_000_000
+    per_output = rates["output_per_mtok"] / 1_000_000
+    low = tokens * per_input
+    high = tokens * per_output
+    estimate = tokens * (share * per_input + (1 - share) * per_output)
+    return {"estimate": estimate, "if_all_input": low, "if_all_output": high,
+            "assumed_input_share": share}
+
+
 def read_rows(path: Path) -> list[dict]:
     if not path.exists():
         sys.exit(f"no run log at {path}\nIs that a NovaForge workspace?")
@@ -167,14 +209,54 @@ def describe(data: dict) -> None:
               f"{', '.join(f'{k} {v}' for k, v in sorted(s.items()))}"
               f"  -> {gate.get('aggregate')} {gate.get('verdict')}")
     print()
-    print("NOT sent, because the log does not carry it:")
-    print("  token counts and cost - the orchestrator does not record")
-    print("  per-call usage, so every generation goes up without usage_details")
-    print("  or cost_details. Recording subagent token counts in the log would")
-    print("  fix this and needs no change here.")
+    pricing = load_pricing(Path(__file__).resolve().parent.parent)
+    tokens = sum(r.get("tokens") or 0 for r in calls)
+    if not tokens:
+        print("no token counts in this log, so nothing can be priced.")
+        print("Runs driven before the orchestrator recorded `tokens` can be")
+        print("filled in with tools/backfill_tokens.py.")
+        return
+
+    est = low = high = 0.0
+    unpriced = []
+    for row in calls:
+        cost = cost_of(row.get("tokens") or 0, row.get("model") or "", pricing)
+        if cost:
+            est += cost["estimate"]
+            low += cost["if_all_input"]
+            high += cost["if_all_output"]
+        elif row.get("tokens"):
+            unpriced.append(row.get("model") or "(no model in row)")
+
+    print(f"tokens      {tokens:,}")
+    by_agent: dict[str, int] = {}
+    for row in calls:
+        by_agent[row["agent"]] = by_agent.get(row["agent"], 0) + (row.get("tokens") or 0)
+    for agent, n in sorted(by_agent.items(), key=lambda kv: -kv[1]):
+        share = n / tokens * 100
+        print(f"  {agent:<22}{n:>8,}  {share:4.1f}%")
+    print()
+    print(f"cost        ${est:.2f} estimated")
+    print(f"  bounds    ${low:.2f} if every token were input")
+    print(f"            ${high:.2f} if every token were output")
+    share = pricing.get("assumed_input_share")
+    print(f"  basis     the harness reports one token total per call with no")
+    print(f"            input/output split, so the bounds are exact and the")
+    print(f"            estimate assumes {share:.0%} input "
+          f"(config/pricing.json)")
+    if unpriced:
+        print(f"  unpriced  {len(unpriced)} generations: "
+              f"{', '.join(sorted(set(unpriced)))}")
+
+    sources = {r.get("tokens_source") for r in calls if r.get("tokens")}
+    if "reconstructed" in sources:
+        print()
+        print("Some token figures are marked `reconstructed`: copied out of a")
+        print("session transcript rather than recorded by the orchestrator as")
+        print("the run happened. They travel with that label.")
 
 
-def export(workspace: Path, data: dict) -> int:
+def export(workspace: Path, data: dict, fresh: str = "") -> int:
     try:
         from langfuse import Langfuse
     except ImportError:
@@ -227,14 +309,43 @@ def export(workspace: Path, data: dict) -> int:
 
     rows, state, snapshot = data["rows"], data["state"], data["snapshot"]
     slug = state.get("slug", "unknown")
+    pricing = load_pricing(Path(__file__).resolve().parent.parent)
+
+    # Totals first, so the trace's own metadata carries them. A reader who
+    # opens a trace should see what the run cost without adding up its
+    # children.
+    totals = {"tokens": 0, "estimate": 0.0, "low": 0.0, "high": 0.0}
+    per_agent: dict[str, int] = {}
+    priced = unpriced = 0
+    for row in rows:
+        if not row.get("agent"):
+            continue
+        tokens = row.get("tokens") or 0
+        totals["tokens"] += tokens
+        per_agent[row["agent"]] = per_agent.get(row["agent"], 0) + tokens
+        cost = cost_of(tokens, row.get("model") or "", pricing)
+        if cost:
+            priced += 1
+            totals["estimate"] += cost["estimate"]
+            totals["low"] += cost["if_all_input"]
+            totals["high"] += cost["if_all_output"]
+        else:
+            unpriced += 1
 
     # Seeded from the attempt, not the novel. On `main` this was got wrong
     # three times before it stuck: seeding from slug and config alone put
     # every re-run of the same novel into one trace, with everything piled in.
     # A workspace has no run_id, so the log's first timestamp stands in for one.
+    #
+    # `--fresh` adds a salt. It exists because an export can be wrong — the
+    # first export of this run went up with no token counts at all — and
+    # re-running onto the same trace id appends a second copy of every
+    # generation rather than replacing the first.
     first_ts = next((r.get("ts") for r in rows if r.get("ts")), "")
-    trace_id = Langfuse.create_trace_id(
-        seed=f"{slug}|{state.get('config_hash')}|{first_ts}")
+    seed = f"{slug}|{state.get('config_hash')}|{first_ts}"
+    if fresh:
+        seed += f"|export={fresh}"
+    trace_id = Langfuse.create_trace_id(seed=seed)
 
     # In SDK v4 a trace takes its name from its root observation and there is no
     # public way to set trace-level tags, so everything a reader would filter on
@@ -254,6 +365,14 @@ def export(workspace: Path, data: dict) -> int:
             "manuscript_words": state.get("manuscript_words"),
             "style_passes_discarded": state.get("style_passes_discarded"),
             "gate": (snapshot.get("quality_gate") or {}),
+            "total_tokens": totals["tokens"],
+            "tokens_by_agent": per_agent,
+            "cost_usd_estimate": round(totals["estimate"], 4),
+            "cost_usd_if_all_input": round(totals["low"], 4),
+            "cost_usd_if_all_output": round(totals["high"], 4),
+            "generations_priced": priced,
+            "generations_unpriced": unpriced,
+            "pricing_source": pricing.get("source", ""),
         },
     )
     root.end()
@@ -262,6 +381,8 @@ def export(workspace: Path, data: dict) -> int:
     # generation that produced the draft it judged, rather than against the run.
     drafts: dict[tuple[int, int], str] = {}
     sent = 0
+    run_tokens = 0
+    run_cost = {"estimate": 0.0, "low": 0.0, "high": 0.0}
 
     for row in rows:
         agent = row.get("agent")
@@ -291,14 +412,44 @@ def export(workspace: Path, data: dict) -> int:
         if chapter is not None:
             name += f":ch{chapter:02d}"
 
+        tokens = row.get("tokens") or 0
+        model = row.get("model") or "claude-code-subagent"
+        cost = cost_of(tokens, model, pricing)
+
+        extra: dict = {}
+        if tokens:
+            # One figure, because one figure is what the harness reports. Sent
+            # under "total" rather than split across input and output, which
+            # would be inventing a breakdown Langfuse would then price as fact.
+            extra["usage_details"] = {"total": tokens}
+        if cost:
+            extra["cost_details"] = {"total": round(cost["estimate"], 6)}
+
         generation = client.start_observation(
             trace_context={"trace_id": trace_id},
             name=name,
             as_type="generation",
-            model=row.get("model", "claude-code-subagent"),
+            model=model,
             output=scrub(output),
-            metadata={k: v for k, v in row.items() if k not in ("ts",)},
+            metadata={
+                **{k: v for k, v in row.items() if k not in ("ts",)},
+                **({"cost_usd_estimate": round(cost["estimate"], 6),
+                    "cost_usd_if_all_input": round(cost["if_all_input"], 6),
+                    "cost_usd_if_all_output": round(cost["if_all_output"], 6),
+                    "cost_basis": f"one total token figure, split "
+                                  f"{cost['assumed_input_share']:.0%} input by "
+                                  f"assumption; the two bounds are exact"}
+                   if cost else
+                   {"cost_basis": "not priced: no rate for this model in "
+                                  "config/pricing.json"}),
+            },
+            **extra,
         )
+        run_tokens += tokens
+        if cost:
+            run_cost["estimate"] += cost["estimate"]
+            run_cost["low"] += cost["if_all_input"]
+            run_cost["high"] += cost["if_all_output"]
         if is_draft:
             drafts[(chapter, iteration or 1)] = generation.id
         generation.end()
@@ -340,8 +491,20 @@ def export(workspace: Path, data: dict) -> int:
 
     client.flush()
 
-    print(f"sent {sent} generations and "
-          f"{sum(len(r.get('scores') or {}) for r in rows if r.get('event') == 'gate_decision') + 2} scores")
+    scores_sent = sum(len(r.get("scores") or {}) for r in rows
+                      if r.get("event") == "gate_decision") + 2
+    print(f"sent {sent} generations and {scores_sent} scores")
+    if totals["tokens"]:
+        print(f"  {totals['tokens']:,} tokens")
+        if priced:
+            print(f"  ${totals['estimate']:.2f} estimated "
+                  f"(${totals['low']:.2f} if every token were input, "
+                  f"${totals['high']:.2f} if every token were output)")
+        if unpriced:
+            print(f"  {unpriced} generations unpriced; add their model to "
+                  f"config/pricing.json")
+    else:
+        print("  no token counts in the log - nothing to price")
     try:
         print(client.get_trace_url(trace_id=trace_id))
     except Exception:  # noqa: BLE001 - a URL is a convenience, never a failure
@@ -356,6 +519,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="a run directory, e.g. output/<slug>")
     parser.add_argument("--dry-run", action="store_true",
                         help="print what would be sent; no credentials, no network")
+    parser.add_argument("--fresh", metavar="LABEL", default="",
+                        help="mint a new trace instead of adding to the one this "
+                             "run already has. Re-exporting onto the same trace "
+                             "appends a second copy of every generation rather "
+                             "than replacing the first, so use this when a "
+                             "previous export was incomplete. The label is any "
+                             "string, e.g. --fresh with-tokens")
     args = parser.parse_args(argv)
 
     workspace = args.workspace
@@ -366,7 +536,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         describe(data)
         return 0
-    return export(workspace, data)
+    return export(workspace, data, fresh=args.fresh or "")
 
 
 if __name__ == "__main__":
