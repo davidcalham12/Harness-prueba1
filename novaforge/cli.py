@@ -60,6 +60,9 @@ def _build_parser() -> argparse.ArgumentParser:
     new.add_argument("--max-cost-usd", type=float,
                      help="overrides budget.max_cost_usd")
     new.add_argument("--max-calls", type=int, help="overrides budget.max_calls")
+    new.add_argument("--trace", metavar="SINK",
+                     help="send the run to an observability sink "
+                          "(none | langfuse); overrides observability.sink")
     new.add_argument("--force", action="store_true",
                      help="discard an existing run in this slug and start over")
     new.add_argument("--quiet", action="store_true")
@@ -82,7 +85,7 @@ def _overrides(args) -> dict:
     Only flags the user actually passed appear, so an absent flag inherits from
     the profile rather than overwriting it with a parser default.
     """
-    novel, engine, gate, budget = {}, {}, {}, {}
+    novel, engine, gate, budget, observability = {}, {}, {}, {}, {}
     if getattr(args, "chapters", None) is not None:
         novel["chapters"] = args.chapters
     if getattr(args, "target_words", None) is not None:
@@ -105,6 +108,8 @@ def _overrides(args) -> dict:
         budget["max_cost_usd"] = args.max_cost_usd
     if getattr(args, "max_calls", None) is not None:
         budget["max_calls"] = args.max_calls
+    if getattr(args, "trace", None):
+        observability["sink"] = args.trace
 
     overlay = {}
     if novel:
@@ -115,6 +120,8 @@ def _overrides(args) -> dict:
         overlay["quality_gate"] = gate
     if budget:
         overlay["budget"] = budget
+    if observability:
+        overlay["observability"] = observability
     return overlay
 
 

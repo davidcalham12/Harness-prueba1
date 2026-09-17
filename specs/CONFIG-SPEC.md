@@ -135,6 +135,33 @@ That is the point of the whole config layer. If a length, a threshold or a
 budget could only be changed by editing a module, then every one of those
 numbers would be a code review instead of a setting.
 
+## CFG-11 — Observability is additive, and off by default
+
+`observability.sink` selects where a run is *also* reported. The default is
+`"none"`, and that is the shipped configuration rather than a degraded mode:
+with it, a run imports nothing beyond the standard library and talks to no
+network, which is what keeps `dependencies = []` and ACC-1 true.
+
+Three rules govern anything that is switched on:
+
+**It may add, never replace.** `logs/agents.jsonl` remains the record of what a
+run did — hash-chained, verifiable offline, written either way. A trace in a
+hosted service is a row in somebody's database and can be edited; a run that
+relied on it for evidence would have traded a tamper-evident record for a
+convenient one.
+
+**It may never change a run.** Not the artefacts, not the audit chain, not
+whether the run succeeds. `observability.base.GuardedSink` wraps every sink at
+the boundary, so the guarantee is a property of being a sink rather than
+something each implementation has to remember. An observability backend that
+could fail a novel would be a worse deal than no observability at all.
+
+**What leaves the machine is scrubbed.** A premise is user-supplied and a
+completion is model-written, and this is the only place in the program where
+either travels to a third party. The redactor that protects `state.json`
+protects this too (SEC-2.2), and the credentials come from the environment for
+the same reason the Anthropic key does (SEC-2.1).
+
 ---
 
 ## Where these are checked

@@ -54,6 +54,9 @@
 
   "budget": { "max_cost_usd": 25.0, "max_calls": 500, "max_tokens": 5000000 },
 
+  "_comment_observability": "CFG-11. Additive only. logs/agents.jsonl stays the record of a run; a sink is a second copy for looking at. Default is off, which is why dependencies stay empty and a run stays offline.",
+  "observability": { "sink": "none", "environment": "novaforge" },
+
   "outputs": {
     "formats": ["markdown", "pdf"],
     "synopsis": {

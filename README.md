@@ -131,7 +131,7 @@ refuses to start if a skill and `flow.yaml` disagree.
 ## Try it
 
 ```bash
-python -m pytest -q                  # 738 tests, offline, ~45 seconds
+python -m pytest -q                  # 765 tests, offline, ~48 seconds
 python tools/check_specs.py          # specs, skills and tests still agree
 python -m novaforge new "your premise here" --profile tiny --engine mock
 python -m novaforge status <slug>
@@ -187,6 +187,30 @@ it becomes an HMAC chain instead.
 python -c "from novaforge.security.audit import AuditChain; from novaforge.security.sandbox import Workspace; print(AuditChain(Workspace('output/golden-tiny', create=False)).verify())"
 # chain intact (31 rows, hash chain)
 ```
+
+## Watching a run in Langfuse
+
+Off by default, and that is the shipped configuration rather than a degraded
+mode: with it, a run imports nothing beyond the standard library.
+
+```powershell
+pip install "novaforge[langfuse]"
+$env:LANGFUSE_PUBLIC_KEY = "pk-lf-..."
+$env:LANGFUSE_SECRET_KEY = "sk-lf-..."
+
+python -m novaforge new "your premise" --profile tiny --engine mock --trace langfuse
+```
+
+One trace per run, one generation per model call, one score per critic verdict.
+That mapping is not a design decision so much as a recognition: the audit log
+already had exactly those three shapes.
+
+Three rules, spelled out in `specs/CONFIG-SPEC.md` § CFG-11. A sink **adds and
+never replaces** — `logs/agents.jsonl` stays the record, because a trace in a
+hosted service is a row in somebody's database and can be edited. A sink **can
+never fail a run**; `GuardedSink` wraps every one of them at the boundary. And
+**what leaves the machine is scrubbed**, by the same redactor that protects
+`state.json`.
 
 ## Adding an agent
 

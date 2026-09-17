@@ -94,7 +94,7 @@ def isolated_root(tmp_path):
 
 
 def run_novel(tmp_path, *, slug="t", profile="tiny", overrides=None, resume=False,
-              premise=PREMISE, report=lambda *_: None):
+              premise=PREMISE, sink=None, report=lambda *_: None):
     """Run the whole pipeline into ``tmp_path``. Used by the end-to-end tests."""
     from novaforge.orchestrator import Orchestrator
 
@@ -104,5 +104,5 @@ def run_novel(tmp_path, *, slug="t", profile="tiny", overrides=None, resume=Fals
     eng = build_engine("mock", model=cfg.get("engine.model"), seed=cfg.get("engine.seed"),
                        inject_drift=cfg.get("engine.inject_drift"))
     orch = Orchestrator(spec=spec, config=cfg, workspace=space, engine=eng,
-                        premise=premise, slug=slug, report=report)
+                        premise=premise, slug=slug, report=report, sink=sink)
     return orch, orch.run(resume=resume), space

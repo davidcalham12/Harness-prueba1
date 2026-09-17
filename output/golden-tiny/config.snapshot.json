@@ -1,5 +1,5 @@
 {
-  "config_hash": "974097797f7b",
+  "config_hash": "bfd93a1350cb",
   "layers": [
     "config/novel.config.json",
     "config/profiles/tiny.json",
@@ -85,6 +85,10 @@
         "min": 300,
         "target": 420
       }
+    },
+    "observability": {
+      "environment": "novaforge",
+      "sink": "none"
     },
     "outputs": {
       "formats": [

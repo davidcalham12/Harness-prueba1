@@ -24,6 +24,7 @@ from .bible import FileBible, ReadOnlyBible
 from .config import Config
 from .domain.models import Usage
 from .engines.base import Completion, Engine, Request
+from .observability import GuardedSink, RunSink, build_sink
 from .pricing import cost_usd
 from .response import HEADING_KINDS, clean_response, find_chatter
 from .security.audit import (
@@ -110,6 +111,7 @@ class Orchestrator:
         slug: str,
         report: Callable[[str], None] = print,
         agents: AgentRegistry | None = None,
+        sink: RunSink | None = None,
     ) -> None:
         self.spec = spec
         self.config = config
@@ -130,6 +132,16 @@ class Orchestrator:
         # not three stages in.
         self.agents = agents if agents is not None else load_agents()
         self.agents.check_against_flow(spec)
+        # Additive, never authoritative: the chain below is the record, this
+        # is a copy for looking at. Defaults to a sink that does nothing, so
+        # an unconfigured run is the offline run it always was.
+        # Wrapped whoever supplied it. The guarantee that a sink cannot fail
+        # a run belongs at this boundary, not inside each implementation -
+        # otherwise it protects only the sinks that remembered to ask.
+        self.sink = GuardedSink(
+            sink if sink is not None else build_sink(
+                config.get("observability.sink", default=None)),
+            report=self.report)
         self._chain = AuditChain(workspace)
         self._budget = BudgetGuard(Budget.from_config(config))
 
@@ -156,6 +168,13 @@ class Orchestrator:
         """One chained row. Every write to the audit log goes through here."""
         self._chain.append(self.redactor.scrub_data(
             {"ts": round(time.time(), 3), "config_hash": self.config.hash, **row}))
+        # The sink reads the events this log was already emitting, rather than
+        # each stage remembering to tell it something.
+        if row.get("event") == "gate_decision":
+            self.sink.record_gate(
+                chapter=row["chapter"], iteration=row["iteration"],
+                scores=row["scores"], threshold=row["threshold"],
+                verdict=row["verdict"], findings=None)
 
     # -- the model call, in one place ------------------------------------
 
@@ -213,6 +232,16 @@ class Orchestrator:
             "injection_findings": hits,
             "chatter": chatter,
         })
+        self.sink.record_call(
+            flow_id=self._current_stage_id, role=role, kind=request.kind,
+            model=completion.model, system=system, prompt=prompt,
+            output=completion.text,
+            input_tokens=completion.usage.input_tokens,
+            output_tokens=completion.usage.output_tokens,
+            cost_usd=spent, elapsed_s=round(time.time() - started, 4),
+            metadata={"chapter": chapter, "iteration": iteration,
+                      "chatter": bool(chatter), "injection": bool(hits)},
+        )
         self.last_chatter = chatter
         return completion
 
@@ -237,6 +266,14 @@ class Orchestrator:
                     f"A resumed run must be the same novel."
                 )
             self._budget = BudgetGuard.resumed(Budget.from_config(self.config), self.state)
+
+        self.sink.start_run(
+            slug=self.slug, premise=self.premise, config_hash=self.config.hash,
+            metadata={"profile": self.config.get("profile", default=None),
+                      "engine": getattr(self.engine, "name", "unknown"),
+                      "model": self.engine.model,
+                      "chapters": self.config.get("novel.chapters"),
+                      "resumed": resume})
 
         self.workspace.write_json("config.snapshot.json", data={
             "config_hash": self.config.hash,
@@ -307,6 +344,8 @@ class Orchestrator:
         self.state.stage = "complete"
         self._persist()
         self._write_cost()
+        self.sink.finish_run(state=self.state,
+                             chain_intact=self.verify_chain().intact)
         return self.state
 
     def _context_for(self, stage_spec: StageSpec, outline):

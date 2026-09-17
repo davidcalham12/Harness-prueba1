@@ -20,6 +20,9 @@ dependencies = []
 # Only needed for `--engine anthropic`; the mock engine and the whole test
 # suite run without it.
 anthropic = ["anthropic>=1.0"]
+# Only needed for `observability.sink = "langfuse"`. Nothing imports it
+# unless that is configured, so the default run stays offline.
+langfuse = ["langfuse>=3.0"]
 dev = ["pytest>=7.0"]
 
 [project.scripts]
@@ -31,6 +34,7 @@ packages = [
     "novaforge.critics",
     "novaforge.domain",
     "novaforge.engines",
+    "novaforge.observability",
     "novaforge.export",
     "novaforge.security",
     "novaforge.spec",

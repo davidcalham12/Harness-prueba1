@@ -132,8 +132,18 @@ class TestHash:
         assert config_hash({"a": 1, "b": 2}) == config_hash({"b": 2, "a": 1})
 
     def test_comments_do_not_change_the_hash(self):
-        """A doc edit must not invalidate every audit row."""
+        """CFG-8 — a doc edit must not invalidate every audit row."""
         assert config_hash({"a": 1}) == config_hash({"a": 1, "_comment": "why"})
+
+    def test_any_comment_key_counts_not_just_the_exact_name(self):
+        """A file with two things to explain needs two keys.
+        `_comment_observability` is a comment by every reading except a
+        literal string comparison, and it reached the hash once."""
+        assert config_hash({"a": 1}) == config_hash(
+            {"a": 1, "_comment": "x", "_comment_observability": "y"})
+
+    def test_a_key_that_merely_starts_with_an_underscore_is_a_setting(self):
+        assert config_hash({"a": 1}) != config_hash({"a": 1, "_internal": "y"})
 
     def test_the_hash_is_short_and_hex(self):
         value = load_config(profile="tiny").hash

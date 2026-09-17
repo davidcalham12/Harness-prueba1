@@ -67,10 +67,16 @@ def deep_merge(base: Mapping[str, Any], overlay: Mapping[str, Any]) -> dict[str,
 
 
 def _strip_comments(data: Any) -> Any:
-    """Drop ``_comment`` keys. They document the file; they are not settings,
-    and leaving them in would change the config hash for a doc edit."""
+    """Drop comment keys. They document the file; they are not settings, and
+    leaving them in would change the config hash for a doc edit (CFG-8).
+
+    Any key beginning ``_comment`` counts, not just the exact name. A file with
+    two things to explain needs two keys, and ``_comment_observability`` is a
+    comment by every reading except a literal string comparison.
+    """
     if isinstance(data, Mapping):
-        return {k: _strip_comments(v) for k, v in data.items() if k != "_comment"}
+        return {k: _strip_comments(v) for k, v in data.items()
+                if not str(k).startswith("_comment")}
     if isinstance(data, list):
         return [_strip_comments(v) for v in data]
     return data
