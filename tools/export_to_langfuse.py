@@ -195,9 +195,35 @@ def export(workspace: Path, data: dict) -> int:
     client = Langfuse(public_key=public, secret_key=secret, host=host(),
                       environment="novaforge")
 
-    if not client.auth_check():
-        sys.exit(f"those credentials cannot reach {host() or 'the default host'}.\n"
-                 "Check the region: LANGFUSE_BASE_URL must match the project's.")
+    # auth_check RAISES on bad credentials rather than returning False, which is
+    # not what the name suggests and cost a traceback to discover. Catching it is
+    # the difference between a stack trace and a line that says what to do.
+    try:
+        reachable = bool(client.auth_check())
+        detail = ""
+    except Exception as exc:  # noqa: BLE001 - anything here means "cannot reach"
+        reachable, detail = False, str(exc)
+
+    if not reachable:
+        where = host() or "the EU default, https://cloud.langfuse.com"
+        message = [f"those credentials cannot reach {where}."]
+        if ("401" in detail or "Unauthorized" in detail) and not host():
+            # A Langfuse key pair is valid on exactly one host, and the SDK
+            # silently defaults to the EU. The 401 that follows says nothing
+            # about regions unless you already suspect them.
+            message += [
+                "",
+                "This is almost always the region rather than the keys. Neither",
+                "LANGFUSE_BASE_URL nor LANGFUSE_HOST is set, so the SDK used the",
+                "EU default. Set the host your project actually lives on — it is",
+                "the one in your browser's address bar on the dashboard:",
+                "",
+                "  $env:LANGFUSE_BASE_URL = 'https://us.cloud.langfuse.com'",
+                "  $env:LANGFUSE_BASE_URL = 'https://cloud.langfuse.com'",
+            ]
+        else:
+            message += ["", "Check that the host matches the project's region."]
+        sys.exit("\n".join(message))
 
     rows, state, snapshot = data["rows"], data["state"], data["snapshot"]
     slug = state.get("slug", "unknown")
