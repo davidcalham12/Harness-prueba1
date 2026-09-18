@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { LogEntry, NovelConfig, Pricing } from '../types'
 import {
   deepMerge,
@@ -13,6 +13,9 @@ import {
 } from '../data/derive'
 import { CostNote, CostTriple } from '../components/Provenance'
 import { Configurator } from './Configurator'
+import { getSample } from '../data/claude'
+import { generateNovel, type GeneratedRun, type Progress } from '../data/generate'
+import type { AgentDef, FlowSpec } from '../types'
 
 const EXAMPLES = [
   'A deep-space salvage crew finds a derelict that remembers them',
@@ -34,6 +37,9 @@ export function NewNovel({
   pricing,
   seed,
   onSeedConsumed,
+  agents,
+  flow,
+  onGenerated,
 }: {
   base: NovelConfig
   profiles: Record<string, NovelConfig>
@@ -42,7 +48,28 @@ export function NewNovel({
   /** A configuration carried over from "duplicate" in the Library. */
   seed: { profile: string; premise: string } | null
   onSeedConsumed: () => void
+  agents: AgentDef[]
+  flow: FlowSpec
+  /** Hands a finished in-page run up, so the run screens can show it. */
+  onGenerated: (run: GeneratedRun) => void
 }) {
+  const [sample, setSample] = useState<Awaited<ReturnType<typeof getSample>>>(null)
+  const [running, setRunning] = useState(false)
+  const [progress, setProgress] = useState<Progress | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
+  const [aborter, setAborter] = useState<AbortController | null>(null)
+
+  // Resolved after the first render, never during it: a view that cannot run
+  // the capability gets null and the page simply does not offer it.
+  useEffect(() => {
+    let live = true
+    getSample().then((fn) => {
+      if (live) setSample(() => fn)
+    })
+    return () => {
+      live = false
+    }
+  }, [])
   const [premise, setPremise] = useState('')
   const [profileName, setProfileName] = useState(seed?.profile ?? 'tiny')
   const [chapters, setChapters] = useState<number | null>(null)
@@ -136,6 +163,74 @@ export function NewNovel({
     a.download = `${slug || profileName}.json`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  const run = async () => {
+    if (!sample) return
+    const controller = new AbortController()
+    setAborter(controller)
+    setRunning(true)
+    setFailure(null)
+    setProgress({ stage: 'starting', detail: 'asking Claude for the world', done: 0, total: 1 })
+    try {
+      const generated = await generateNovel({
+        premise: premise.trim(),
+        config: resolved,
+        profile: profileName,
+        agents,
+        flow,
+        sample,
+        signal: controller.signal,
+        onProgress: setProgress,
+      })
+      onGenerated(generated)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setFailure(message.includes('cancelled') || message.includes('abort') ? 'Stopped.' : message)
+    } finally {
+      setRunning(false)
+      setAborter(null)
+    }
+  }
+
+  if (running || failure) {
+    const pct = progress ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0
+    return (
+      <div className="screen">
+        <section className="running">
+          <h2>{failure ? 'It stopped' : 'Writing'}</h2>
+          {failure ? (
+            <>
+              <p className="check check-bad">{failure}</p>
+              <button type="button" onClick={() => setFailure(null)}>
+                Back to the form
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="lede">
+                {progress?.detail ?? 'starting'}
+              </p>
+              <div className="progress-track">
+                <div className="progress-fill" style={{ width: `${pct}%` }} />
+              </div>
+              <p className="progress-meta">
+                <strong>{progress?.stage}</strong> · {progress?.done ?? 0} of about{' '}
+                {progress?.total ?? '?'} calls
+              </p>
+              <p className="note">
+                Each stage is a real request to Claude, paid by whoever has this page open. The
+                chapter writer is never sent a previous chapter&rsquo;s prose — only the Story Bible,
+                its own outline entry and the capped rolling summary.
+              </p>
+              <button type="button" onClick={() => aborter?.abort()}>
+                Stop
+              </button>
+            </>
+          )}
+        </section>
+      </div>
+    )
   }
 
   if (confirmed) {
@@ -352,22 +447,50 @@ export function NewNovel({
           and it runs once, here.
         </p>
 
-        <button
-          type="button"
-          className="primary"
-          disabled={blocked || !premise.trim()}
-          onClick={() => setConfirmed(true)}
-        >
-          {blocked
-            ? 'Fix the configuration first'
-            : !premise.trim()
-              ? 'Write a premise first'
-              : 'Get the command'}
-        </button>
-        <p className="note">
-          NovaForge runs in your terminal. This screen hands you a command and a profile; it starts
-          nothing, calls no model and writes nothing.
-        </p>
+        <div className="run-actions">
+          {sample && (
+            <button
+              type="button"
+              className="primary"
+              disabled={blocked || !premise.trim()}
+              onClick={run}
+            >
+              {blocked
+                ? 'Fix the configuration first'
+                : !premise.trim()
+                  ? 'Write a premise first'
+                  : 'Write it here'}
+            </button>
+          )}
+          <button
+            type="button"
+            className={sample ? '' : 'primary'}
+            disabled={blocked || !premise.trim()}
+            onClick={() => setConfirmed(true)}
+          >
+            Get the command instead
+          </button>
+        </div>
+
+        {sample ? (
+          <div className="check check-warn">
+            <strong>Writing it here runs the pipeline in this page.</strong> Every stage becomes a
+            real request to Claude, billed to whoever has the page open, and the first one asks your
+            permission. The result is held in memory: it is shown on the same screens as a saved run
+            and it is gone when you reload. Two things differ from a terminal run, and they are worth
+            knowing —{' '}
+            <strong>the agents are prompts here rather than subagents</strong>, so the chapter
+            writer&rsquo;s isolation rests on this page not sending it prior prose rather than on it
+            having no tool to fetch any; and <strong>no token counts come back</strong>, so this run
+            will honestly report its cost as not recorded.
+          </div>
+        ) : (
+          <p className="note">
+            NovaForge runs in your terminal. This screen hands you a command and a profile; it starts
+            nothing, calls no model and writes nothing. (On the published page it can also write the
+            novel here, if the viewer grants it.)
+          </p>
+        )}
       </section>
     </div>
   )

@@ -32,6 +32,7 @@ import { Quality } from './screens/Quality'
 import { Run } from './screens/Run'
 import { Manuscript } from './screens/Manuscript'
 import { Presentation } from './screens/Presentation'
+import type { GeneratedRun } from './data/generate'
 
 /**
  * Two levels of navigation, because the panel now has two jobs.
@@ -73,6 +74,15 @@ export function App() {
   const [log, setLog] = useState<LogEntry[]>([])
   const [critiques, setCritiques] = useState<Critique[]>([])
 
+  /**
+   * A run written in this page rather than read from disk.
+   *
+   * It holds its own documents, so the Manuscript reads them from here instead
+   * of fetching. Everything else — the gate table, the orchestrator's counts,
+   * the replay — works off the same log shape and needs no special case.
+   */
+  const [generated, setGenerated] = useState<GeneratedRun | null>(null)
+
   const [theme, setTheme] = useState<'light' | 'dark'>(
     window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
   )
@@ -112,7 +122,7 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    if (!slug) return
+    if (!slug || generated) return
     ;(async () => {
       const [s, l] = await Promise.all([loadState(slug), loadLog(slug)])
       setState(s)
@@ -123,11 +133,21 @@ export function App() {
       )
       setCritiques(await loadCritiques(slug, wanted))
     })()
-  }, [slug])
+  }, [slug, generated])
 
   const openRun = useCallback((next: string, at: RunTab = 'diagram') => {
+    setGenerated(null)
     setSlug(next)
     setTab(at)
+  }, [])
+
+  const adoptGenerated = useCallback((run: GeneratedRun) => {
+    setGenerated(run)
+    setState(run.state)
+    setLog(run.log)
+    setCritiques(run.critiques)
+    setSlug(run.slug)
+    setTab('quality')
   }, [])
 
   const duplicate = useCallback((run: RunSummary) => {
@@ -245,6 +265,16 @@ export function App() {
               </div>
             </dl>
 
+            {generated && (
+              <div className="check check-warn">
+                <strong>This novel was written in this page and is not saved.</strong> It lives in
+                memory and disappears when you reload. The agents here were prompts rather than
+                subagents, so the chapter writer&rsquo;s isolation rests on the page not sending it
+                prior prose rather than on it having no tool to fetch any — and no token counts come
+                back from the capability, so every figure below says so.
+              </div>
+            )}
+
             {!state && (
               <div className="check check-warn">
                 No <code>state.json</code> in this run. It is only written when a run finishes, so
@@ -311,6 +341,9 @@ export function App() {
             pricing={shared.pricing}
             seed={seed}
             onSeedConsumed={() => setSeed(null)}
+            agents={shared.agents}
+            flow={shared.flow}
+            onGenerated={adoptGenerated}
           />
         )}
 
@@ -334,7 +367,9 @@ export function App() {
                 critiques={critiques}
               />
             )}
-            {tab === 'manuscript' && <Manuscript slug={slug} state={state} />}
+            {tab === 'manuscript' && (
+              <Manuscript slug={slug} state={state} docs={generated?.docs} />
+            )}
             {tab === 'replay' && <Presentation log={log} />}
           </>
         )}

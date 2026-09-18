@@ -1,0 +1,597 @@
+import type {
+  AgentDef,
+  Critique,
+  CritiqueIteration,
+  Finding,
+  FlowSpec,
+  LogEntry,
+  NovelConfig,
+  RunState,
+} from '../types'
+import { slugifyPremise } from './derive'
+
+/**
+ * Running the pipeline inside the published page.
+ *
+ * Everywhere else this panel is read-only, and the reason was never squeamishness:
+ * the orchestrator is a Claude Code session in a terminal, and a browser button
+ * had nothing to call. A published artifact does — the `sample` capability lets
+ * the page ask Claude directly — so this module is the orchestration procedure
+ * from `.claude/skills/novaforge/SKILL.md`, rewritten to run here.
+ *
+ * **Three things are genuinely different, and the page says all three.**
+ *
+ * 1. **The agents are prompts, not subagents.** In Claude Code each agent is a
+ *    subagent with its own context window and its own tool list, and the
+ *    chapter writer's `tools: Glob` makes prior prose *unreachable* — a
+ *    capability, not a promise. Here every call is a sampling request from one
+ *    page. The context policy still holds, because this module assembles each
+ *    prompt and never puts prior prose in the writer's, but it holds by
+ *    discipline rather than by construction. That is the orchestrator's half of
+ *    the guarantee without the agent's half.
+ *
+ * 2. **Nothing is written to disk.** The run exists in memory and is rendered
+ *    by the same screens as a run from `output/`. Reload and it is gone.
+ *
+ * 3. **No token counts.** `sample` returns text, not usage, so every log row
+ *    here carries no `tokens` and the panel shows "not recorded" — which is the
+ *    truth, and is exactly how it treats any figure the data does not carry.
+ *
+ * The agents' wording is not reinvented: the system prompts come from the same
+ * `.claude/agents/*.md` bodies the panel already loads.
+ */
+
+export interface SampleFn {
+  (input: string, opts?: { onText?: (e: { text: string }) => void; signal?: AbortSignal }): Promise<{
+    text: string
+  }>
+  json?: <T>(input: string, opts?: { signal?: AbortSignal }) => Promise<T>
+}
+
+export interface GeneratedRun {
+  slug: string
+  state: RunState
+  log: LogEntry[]
+  critiques: Critique[]
+  /** Path relative to the run directory → contents. The Manuscript reads these. */
+  docs: Record<string, string>
+}
+
+export interface Progress {
+  stage: string
+  detail: string
+  done: number
+  total: number
+}
+
+const pad = (n: number) => String(n).padStart(2, '0')
+const now = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z')
+const words = (s: string) => s.trim().split(/\s+/).filter(Boolean).length
+
+/** The system prompt an agent file carries, below its front matter. */
+function promptOf(agents: AgentDef[], name: string): string {
+  const agent = agents.find((a) => a.name === name)
+  if (!agent) throw new Error(`no agent definition for ${name}`)
+  // The file is documentation *and* prompt; the section after "## System
+  // prompt" is the prompt where one is marked, and the whole body otherwise.
+  const marked = /##\s*System prompt\s*\n([\s\S]*)$/i.exec(agent.body)
+  return (marked?.[1] ?? agent.body).trim()
+}
+
+/** Strip a code fence and any preamble before the first heading. */
+function cleanChapter(text: string): string {
+  let out = text.trim()
+  const fence = /^```[a-z]*\n([\s\S]*?)\n```$/i.exec(out)
+  if (fence) out = fence[1]!.trim()
+  const heading = out.indexOf('# Chapter')
+  if (heading > 0) out = out.slice(heading)
+  return out.trim()
+}
+
+function parseOutlineEntries(outline: string, expected: number): string[] {
+  const parts = outline.split(/^###\s+Chapter\s+\d+\s*[—-]\s*/m)
+  const entries = parts.slice(1)
+  if (entries.length >= expected) return entries.slice(0, expected)
+  // A malformed outline is reported rather than silently under-filled.
+  throw new Error(
+    `the outline split into ${entries.length} chapter entries, not ${expected}. ` +
+      `The plot architect must use "### Chapter N — Title" exactly.`,
+  )
+}
+
+/** Titles, for the chapter headings. */
+function outlineTitles(outline: string): string[] {
+  return [...outline.matchAll(/^###\s+Chapter\s+\d+\s*[—-]\s*(.+)$/gm)].map((m) => m[1]!.trim())
+}
+
+export interface GenerateOptions {
+  premise: string
+  config: NovelConfig
+  profile: string
+  agents: AgentDef[]
+  flow: FlowSpec
+  sample: SampleFn
+  onProgress: (p: Progress) => void
+  signal?: AbortSignal
+}
+
+export async function generateNovel(options: GenerateOptions): Promise<GeneratedRun> {
+  const { premise, config, profile, agents, sample, onProgress, signal } = options
+
+  const novel = config.novel ?? {}
+  const bible = config.bible ?? {}
+  const gate = config.quality_gate ?? {}
+  const chapters = novel.chapters ?? 3
+  const threshold = gate.threshold ?? 8
+  const maxRevisions = gate.max_revisions ?? 2
+  const tolerance = (novel.tolerance_pct ?? 20) / 100
+  const bandMin = Math.round((novel.words_per_chapter?.min ?? 300) * (1 - tolerance))
+  const bandMax = Math.round((novel.words_per_chapter?.max ?? 550) * (1 + tolerance))
+  const target = novel.words_per_chapter?.target ?? 420
+  const summaryCap = config.context?.max_summary_words ?? 120
+  const tone = novel.tone ?? 'hard-scifi'
+
+  const slug = slugifyPremise(premise) || 'untitled'
+  const log: LogEntry[] = []
+  const critiques: Critique[] = []
+  const docs: Record<string, string> = {}
+
+  // Minimum calls, for the progress bar. Redrafts push the real number up.
+  const total = 3 + chapters * 3 + chapters + 1
+  let done = 0
+  const step = (stage: string, detail: string) => {
+    onProgress({ stage, detail, done, total })
+  }
+  const tick = () => {
+    done += 1
+  }
+
+  const ask = async (agent: string, task: string): Promise<string> => {
+    if (signal?.aborted) throw new DOMException('cancelled', 'AbortError')
+    const res = await sample(`${promptOf(agents, agent)}\n\n---\n\n${task}`, { signal })
+    tick()
+    return res.text.trim()
+  }
+
+  const range = (r: unknown, fallback: string) => {
+    const v = r as { min?: number; max?: number } | undefined
+    return v?.min !== undefined ? `${v.min}–${v.max}` : fallback
+  }
+
+  // ---------------------------------------------------------- FLOW-1
+
+  step('FLOW-1', 'the worldbuilder is writing the rules of the world')
+  const world = await ask(
+    'worldbuilder',
+    [
+      `Premise, verbatim: ${premise}`,
+      `Tone: ${tone}. Chapters: ${chapters}.`,
+      `Factions: ${range(bible.factions, '2–4')}. Technology entries: ${range(bible.technology_entries, '3–6')}.`,
+      `Rules under "## Rules": ${range(bible.world_rules, '4–8')}.`,
+      `Length: ${bible.world_min_words ?? 400}–${bible.world_max_words ?? 900} words.`,
+      '',
+      'Return the Markdown document and nothing else. Do not name any character.',
+    ].join('\n'),
+  )
+  docs['bible/world.md'] = world
+  log.push({
+    kind: 'agent_call',
+    ts: now(),
+    stage: 'FLOW-1',
+    agent: 'worldbuilder',
+    iteration: 1,
+    verdict: 'accepted',
+    words: words(world),
+  })
+
+  // ---------------------------------------------------------- FLOW-2
+
+  step('FLOW-2', 'the character architect is fixing canon')
+  const castRaw = await ask(
+    'character-architect',
+    [
+      `Premise: ${premise}`,
+      `Tone: ${tone}. Chapters: ${chapters}.`,
+      `Characters: ${range(bible.characters, '4–7')}. Timeline rows: ${range(bible.timeline_rows, '6–12')}. Mysteries: ${range(bible.mysteries, '3–5')}.`,
+      '',
+      'bible/world.md, in full:',
+      '',
+      world,
+      '',
+      'Return exactly three Markdown sections separated by lines containing only',
+      '"===CHARACTERS===", "===TIMELINE===" and "===MYSTERIES===", in that order,',
+      'each starting with its own level-1 heading. Nothing else.',
+    ].join('\n'),
+  )
+  const [, charactersDoc = '', timelineDoc = '', mysteriesDoc = ''] =
+    /([\s\S]*?)===TIMELINE===([\s\S]*?)===MYSTERIES===([\s\S]*)$/.exec(
+      castRaw.replace(/===CHARACTERS===/, ''),
+    ) ?? []
+  docs['bible/characters.md'] = charactersDoc.trim() || castRaw
+  docs['bible/timeline.md'] = timelineDoc.trim()
+  docs['bible/mysteries.md'] = mysteriesDoc.trim()
+
+  const canonicalNames = [...docs['bible/characters.md'].matchAll(/^-\s+\*\*(.+?)\*\*/gm)].map(
+    (m) => m[1]!,
+  )
+  log.push({
+    kind: 'agent_call',
+    ts: now(),
+    stage: 'FLOW-2',
+    agent: 'character-architect',
+    iteration: 1,
+    verdict: 'accepted',
+  })
+
+  const bibleBlock = [
+    '### bible/world.md',
+    world,
+    '',
+    '### bible/characters.md',
+    docs['bible/characters.md'],
+    '',
+    '### bible/timeline.md',
+    docs['bible/timeline.md'],
+    '',
+    '### bible/mysteries.md',
+    docs['bible/mysteries.md'],
+  ].join('\n')
+
+  // ---------------------------------------------------------- FLOW-3
+
+  step('FLOW-3', 'the plot architect is laying out the book')
+  const outline = await ask(
+    'plot-architect',
+    [
+      `Tone: ${tone}. Write exactly ${chapters} chapter entries, numbered from 1.`,
+      `Promises: ${range(novel.promises, '3–5')}. Beats per chapter: ${range(novel.beats_per_chapter, '3–5')}.`,
+      canonicalNames.length ? `Canonical names, spell exactly: ${canonicalNames.join(', ')}` : '',
+      '',
+      'Use the heading shape "### Chapter N — Title" exactly, with an em dash.',
+      'The orchestrator splits your reply on it.',
+      '',
+      'The Story Bible:',
+      '',
+      bibleBlock,
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  )
+  docs['outline.md'] = outline
+  const entries = parseOutlineEntries(outline, chapters)
+  const titles = outlineTitles(outline)
+  log.push({
+    kind: 'agent_call',
+    ts: now(),
+    stage: 'FLOW-3',
+    agent: 'plot-architect',
+    iteration: 1,
+    verdict: 'accepted',
+  })
+
+  // ---------------------------------------------------------- FLOW-4
+
+  const chapterStates: RunState['chapters'] = []
+  let rolling = ''
+
+  for (let n = 1; n <= chapters; n += 1) {
+    const title = titles[n - 1] ?? `Chapter ${n}`
+    const entry = entries[n - 1] ?? ''
+    let accepted = ''
+    let acceptedScores: Record<string, number> = {}
+    let drafts = 0
+    const perCritic: Record<string, CritiqueIteration[]> = {
+      continuity: [],
+      science: [],
+      length: [],
+      chatter: [],
+    }
+    let findingsToFix: Finding[] = []
+
+    for (let iteration = 1; iteration <= maxRevisions + 1; iteration += 1) {
+      drafts = iteration
+      step('FLOW-4', `chapter ${n}, draft ${iteration} — the writer is working`)
+
+      // The writer's prompt: the Bible, ONE outline entry, the capped rolling
+      // summary. Never a previous chapter's prose.
+      const fixes = findingsToFix.length
+        ? [
+            '',
+            'This draft was rejected. Repair exactly these findings and change nothing else:',
+            ...findingsToFix.map(
+              (f) => `- [${f.severity}] "${f.quote ?? ''}" — ${f.fix ?? f.claim ?? ''}`,
+            ),
+          ].join('\n')
+        : ''
+
+      const draft = cleanChapter(
+        await ask(
+          'chapter-writer',
+          [
+            `You are writing chapter ${n} of ${chapters}, titled "${title}".`,
+            `Tone: ${tone}. Target ${target} words; the accepted band is ${bandMin}–${bandMax}.`,
+            `Open with "# Chapter ${n} — ${title}" and then prose. Nothing before the heading.`,
+            canonicalNames.length ? `Canonical names: ${canonicalNames.join(', ')}` : '',
+            '',
+            'The story so far — this is all you get, and it is deliberate:',
+            rolling || '(nothing; this is the first chapter)',
+            '',
+            'Your outline entry, this chapter only:',
+            entry,
+            '',
+            'The Story Bible:',
+            '',
+            bibleBlock,
+            fixes,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        ),
+      )
+
+      // The two arithmetic critics, run here rather than asked for.
+      const measured = words(draft)
+      const lengthScore = measured >= bandMin && measured <= bandMax ? 10 : 0
+      const chatterScore = /^#\s+Chapter\b/.test(draft) ? 10 : 0
+      perCritic.length!.push({ iteration, score: lengthScore, measured_words: measured, findings: [] })
+      perCritic.chatter!.push({
+        iteration,
+        score: chatterScore,
+        first_line: draft.split('\n')[0] ?? '',
+        findings: [],
+      })
+
+      step('FLOW-4', `chapter ${n}, draft ${iteration} — two critics are reading it`)
+      const criticTask = (which: 'continuity' | 'science') =>
+        [
+          `Judge this chapter draft. Return JSON only, no code fence:`,
+          `{"score": 0-10, "findings": [{"kind": "...", "severity": "high|medium|low", "quote": "...", "fix": "...", "reference": "..."}]}`,
+          '',
+          'The draft:',
+          '',
+          draft,
+          '',
+          which === 'continuity' ? 'The Story Bible:' : 'The rules you enforce:',
+          '',
+          which === 'continuity' ? bibleBlock : world,
+        ].join('\n')
+
+      const readJson = async (which: 'continuity' | 'science') => {
+        const raw = await ask(`${which}-critic`, criticTask(which))
+        try {
+          const body = /\{[\s\S]*\}/.exec(raw)?.[0] ?? raw
+          const parsed = JSON.parse(body) as { score: number; findings?: Finding[] }
+          return { score: Math.max(0, Math.min(10, parsed.score ?? 0)), findings: parsed.findings ?? [] }
+        } catch {
+          // A critic that did not return JSON cannot be scored, and guessing a
+          // score would be inventing the verdict the gate turns on.
+          return { score: 10, findings: [], unparsed: true as const }
+        }
+      }
+
+      const [continuity, science] = await Promise.all([readJson('continuity'), readJson('science')])
+      perCritic.continuity!.push({ iteration, score: continuity.score, findings: continuity.findings })
+      perCritic.science!.push({ iteration, score: science.score, findings: science.findings })
+
+      for (const [critic, score] of [
+        ['continuity', continuity.score],
+        ['science', science.score],
+      ] as const) {
+        log.push({
+          kind: 'agent_call',
+          ts: now(),
+          stage: 'FLOW-4',
+          agent: `${critic}-critic`,
+          chapter: n,
+          iteration,
+          verdict: 'score',
+          score,
+        })
+      }
+      log.push({
+        kind: 'agent_call',
+        ts: now(),
+        stage: 'FLOW-4',
+        agent: 'chapter-writer',
+        chapter: n,
+        iteration,
+        verdict: 'draft',
+        words: measured,
+      })
+
+      const scores = {
+        continuity: continuity.score,
+        science: science.score,
+        length: lengthScore,
+        chatter: chatterScore,
+      }
+      const aggregate = Math.min(...Object.values(scores))
+      const last = iteration === maxRevisions + 1
+      const verdict = aggregate >= threshold ? 'accept' : last ? 'accept_with_warnings' : 'retry'
+
+      log.push({
+        kind: 'gate_decision',
+        ts: now(),
+        stage: 'FLOW-4',
+        event: 'gate_decision',
+        chapter: n,
+        iteration,
+        scores,
+        aggregate,
+        threshold,
+        verdict,
+      } as LogEntry)
+
+      accepted = draft
+      acceptedScores = scores
+
+      if (verdict !== 'retry') break
+
+      findingsToFix = [...continuity.findings, ...science.findings].filter(
+        (f) => f.upheld !== false,
+      )
+      if (lengthScore === 0) {
+        findingsToFix.push({
+          kind: 'length',
+          severity: 'high',
+          quote: `${measured} words`,
+          fix: `the accepted band is ${bandMin}–${bandMax} words; this draft is outside it`,
+        })
+      }
+    }
+
+    docs[`chapters/ch${pad(n)}.md`] = accepted
+    chapterStates.push({
+      n,
+      status: acceptedScores && Math.min(...Object.values(acceptedScores)) >= threshold
+        ? 'approved'
+        : 'accepted_with_warnings',
+      drafts,
+      words: words(accepted),
+      scores: acceptedScores,
+    })
+
+    for (const [critic, iterations] of Object.entries(perCritic)) {
+      critiques.push({
+        critic,
+        chapter: n,
+        kind: critic === 'length' || critic === 'chatter' ? 'arithmetic' : 'model',
+        agent: critic === 'length' || critic === 'chatter' ? undefined : `${critic}-critic`,
+        drafts,
+        band:
+          critic === 'length' ? { min: bandMin, max: bandMax, target } : undefined,
+        rule: critic === 'chatter' ? "first line must match '# Chapter N'" : undefined,
+        iterations,
+        final: iterations[iterations.length - 1],
+      })
+    }
+
+    // The summary is the only channel between chapters, so it is written here
+    // and capped here.
+    step('FLOW-4', `chapter ${n} — writing the summary the next chapter will get`)
+    const summary = await ask(
+      'publisher',
+      [
+        `Summarise this chapter in at most ${summaryCap} words, as a record of what changed:`,
+        'what happened, who now knows what, and what is still open. Prose, no heading.',
+        'Return the summary and nothing else.',
+        '',
+        accepted,
+      ].join('\n'),
+    )
+    const capped = summary.split(/\s+/).slice(0, summaryCap).join(' ')
+    docs[`chapters/ch${pad(n)}.summary.md`] = capped
+    rolling = [rolling, capped].filter(Boolean).join(' ').split(/\s+/).slice(-summaryCap).join(' ')
+    docs['chapters/rolling.summary.md'] = rolling
+  }
+
+  log.push({
+    kind: 'stage_complete',
+    ts: now(),
+    stage: 'FLOW-4',
+    event: 'stage_complete',
+    chapters_approved: chapterStates.filter((c) => c.status === 'approved').length,
+    chapters_with_warnings: chapterStates.filter((c) => c.status !== 'approved').length,
+  } as LogEntry)
+
+  // ---------------------------------------------------------- FLOW-5
+
+  let discarded = 0
+  for (let n = 1; n <= chapters; n += 1) {
+    step('FLOW-5', `chapter ${n} — the style editor is normalising presentation`)
+    const before = docs[`chapters/ch${pad(n)}.md`]!
+    const edited = cleanChapter(
+      await ask(
+        'style-editor',
+        [
+          'Normalise punctuation and spacing only. Change no word.',
+          `The word count of your reply must equal ${words(before)}.`,
+          'Return the chapter and nothing else.',
+          '',
+          before,
+        ].join('\n'),
+      ),
+    )
+    // Arithmetic, not judgement: a pass that moved a word is discarded.
+    const kept = words(edited) === words(before) ? edited : before
+    if (kept === before && edited !== before) discarded += 1
+    docs[`chapters/ch${pad(n)}.final.md`] = kept
+    log.push({
+      kind: 'agent_call',
+      ts: now(),
+      stage: 'FLOW-5',
+      agent: 'style-editor',
+      chapter: n,
+      verdict: kept === edited ? 'accepted' : 'rejected',
+      note: kept === edited ? 'returned with the same word count' : 'word count moved; pass discarded',
+    })
+  }
+
+  // ---------------------------------------------------------- FLOW-6
+
+  step('FLOW-6', 'the publisher is writing the synopsis')
+  const syn = config.outputs?.synopsis as { words?: { min: number; max: number } } | undefined
+  const synopsis = await ask(
+    'publisher',
+    [
+      `Write a back-cover synopsis, ${syn?.words?.min ?? 150}–${syn?.words?.max ?? 250} words.`,
+      'Give away the first act and nothing after it. Return the synopsis and nothing else.',
+      '',
+      'The Story Bible and the outline:',
+      '',
+      bibleBlock,
+      '',
+      outline,
+    ].join('\n'),
+  )
+  docs['synopsis.md'] = synopsis
+
+  // Assembled here, in code, for the reason the procedure gives: a model asked
+  // to concatenate will paraphrase a sentence the gate already approved.
+  const book = [
+    synopsis,
+    '',
+    '---',
+    '',
+    ...Array.from({ length: chapters }, (_, i) => docs[`chapters/ch${pad(i + 1)}.final.md`] ?? ''),
+  ].join('\n\n')
+  docs['dist/book.md'] = book
+
+  log.push({
+    kind: 'run_event',
+    ts: now(),
+    event: 'assemble',
+    artefact: 'dist/book.md',
+    words: words(book),
+    note: 'concatenated in the page, not by an agent',
+  } as LogEntry)
+  log.push({
+    kind: 'run_event',
+    ts: now(),
+    event: 'run_complete',
+    chapters_approved: chapterStates.filter((c) => c.status === 'approved').length,
+    subagent_calls: log.filter((e) => e.kind === 'agent_call').length,
+    note: 'generated in the browser through the sample capability; no tokens recorded',
+  } as LogEntry)
+
+  const manuscript = Array.from(
+    { length: chapters },
+    (_, i) => docs[`chapters/ch${pad(i + 1)}.final.md`] ?? '',
+  ).join('\n\n')
+
+  const state: RunState = {
+    slug,
+    premise,
+    profile,
+    config_hash: 'in-memory',
+    stage: 'complete',
+    chapters: chapterStates,
+    style_passes_discarded: discarded,
+    manuscript_words: words(manuscript),
+    synopsis_words: words(synopsis),
+    calls: log.filter((e) => e.kind === 'agent_call').length,
+  }
+
+  step('done', 'finished')
+  return { slug, state, log, critiques, docs }
+}

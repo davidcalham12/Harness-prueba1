@@ -168,6 +168,9 @@ const cases: Case[] = [
           pricing={pricing}
           seed={null}
           onSeedConsumed={() => {}}
+          agents={agents}
+          flow={flow}
+          onGenerated={() => {}}
         />,
       ),
     expect: [
@@ -176,6 +179,9 @@ const cases: Case[] = [
       'lines per chapter',
       'runs in your terminal',
       'Nothing stops a run once it starts',
+      // Without the sample capability — which is the case under SSR — the page
+      // must still offer the terminal route and nothing else.
+      'Get the command instead',
     ],
   },
   {

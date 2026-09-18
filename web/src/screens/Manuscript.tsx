@@ -33,9 +33,18 @@ function documents(state: RunState | null, chapters: number): DocEntry[] {
   return docs
 }
 
-export function Manuscript({ slug, state }: { slug: string; state: RunState | null }) {
-  const docs = useMemo(() => documents(state, 3), [state])
-  const [selected, setSelected] = useState<string>(docs[0]?.rel ?? '')
+export function Manuscript({
+  slug,
+  state,
+  docs,
+}: {
+  slug: string
+  state: RunState | null
+  /** Present for a run written in this page: its documents never touched disk. */
+  docs?: Record<string, string>
+}) {
+  const entries = useMemo(() => documents(state, 3), [state])
+  const [selected, setSelected] = useState<string>(entries[0]?.rel ?? '')
   const [source, setSource] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -45,16 +54,21 @@ export function Manuscript({ slug, state }: { slug: string; state: RunState | nu
       const hash = decodeURIComponent(window.location.hash)
       if (hash.startsWith('#doc:')) {
         const target = hash.slice('#doc:'.length)
-        const match = docs.find((d) => d.rel === target || d.rel.endsWith(target))
+        const match = entries.find((d) => d.rel === target || d.rel.endsWith(target))
         if (match) setSelected(match.rel)
       }
     }
     jump()
     window.addEventListener('hashchange', jump)
     return () => window.removeEventListener('hashchange', jump)
-  }, [docs])
+  }, [entries])
 
   useEffect(() => {
+    if (docs) {
+      setSource(docs[selected] ?? null)
+      setLoading(false)
+      return
+    }
     let cancelled = false
     setLoading(true)
     loadDoc(slug, selected).then((text) => {
@@ -66,7 +80,7 @@ export function Manuscript({ slug, state }: { slug: string; state: RunState | nu
     return () => {
       cancelled = true
     }
-  }, [slug, selected])
+  }, [slug, selected, docs])
 
   const rendered = useMemo(() => (source ? renderMarkdown(source) : null), [source])
   const leaks = useMemo(
@@ -74,7 +88,7 @@ export function Manuscript({ slug, state }: { slug: string; state: RunState | nu
     [source, selected],
   )
 
-  const groups = [...new Set(docs.map((d) => d.group))]
+  const groups = [...new Set(entries.map((d) => d.group))]
 
   return (
     <div className="screen manuscript">
@@ -83,7 +97,7 @@ export function Manuscript({ slug, state }: { slug: string; state: RunState | nu
           <div key={group}>
             <h3>{group}</h3>
             <ul>
-              {docs
+              {entries
                 .filter((d) => d.group === group)
                 .map((d) => (
                   <li key={d.rel}>
