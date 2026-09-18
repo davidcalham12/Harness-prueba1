@@ -165,11 +165,21 @@ const cases: Case[] = [
           onRead={() => {}}
           onDuplicate={() => {}}
           onNew={() => {}}
+          writtenHere={new Set(['deep-space-salvage-derelict'])}
+          onDiscard={() => {}}
         />,
       ),
     // The title is the formatted slug, which is the documented stand-in for a
-    // field the data contract does not have.
-    expect: ['Deep Space Salvage Derelict', 'needed a rewrite', 'Duplicate configuration'],
+    // field the data contract does not have. `written here` proves an in-browser
+    // run is marked apart from one read off disk.
+    expect: [
+      'Deep Space Salvage Derelict',
+      'needed a rewrite',
+      'Duplicate configuration',
+      'written here',
+      'Discard',
+      'kept in this browser only',
+    ],
   },
   {
     name: 'Library (empty)',

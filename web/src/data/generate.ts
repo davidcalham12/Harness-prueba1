@@ -70,6 +70,40 @@ export interface Progress {
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
+
+/**
+ * The 12-hex-digit identity of a configuration, the way CFG-8 defines it:
+ * SHA-256 of the resolved config as canonical JSON, sorted keys, no
+ * whitespace, `_comment` stripped. The same settings hash the same anywhere,
+ * which is what makes "these two runs differed only in the config" checkable.
+ */
+async function configHash(config: unknown): Promise<string> {
+  const strip = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(strip)
+    if (value && typeof value === 'object') {
+      const out: Record<string, unknown> = {}
+      for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+        if (key.startsWith('_')) continue
+        out[key] = strip((value as Record<string, unknown>)[key])
+      }
+      return out
+    }
+    return value
+  }
+  const canonical = JSON.stringify(strip(config))
+  try {
+    const bytes = new TextEncoder().encode(canonical)
+    const digest = await crypto.subtle.digest('SHA-256', bytes)
+    return [...new Uint8Array(digest)]
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+      .slice(0, 12)
+  } catch {
+    // Without SubtleCrypto there is no hash to give, and a made-up one would
+    // be worse than none: it would claim an identity it cannot support.
+    return 'unhashed'
+  }
+}
 const now = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z')
 const words = (s: string) => s.trim().split(/\s+/).filter(Boolean).length
 
@@ -137,9 +171,18 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
   const tone = novel.tone ?? 'hard-scifi'
 
   const slug = slugifyPremise(premise) || 'untitled'
+  const hash = await configHash(config)
   const log: LogEntry[] = []
   const critiques: Critique[] = []
   const docs: Record<string, string> = {}
+  // The run records what it ran with, for the same reason a terminal run does:
+  // a run nobody can reconstruct the settings of is a run nobody can explain.
+  docs['config.snapshot.json'] = JSON.stringify(
+    { _layers: ['config/novel.config.json', `config/profiles/${profile}.json`, 'the form'],
+      profile, config_hash: hash, ...config },
+    null,
+    2,
+  )
 
   // Minimum calls, for the progress bar. Redrafts push the real number up.
   const total = 3 + chapters * 3 + chapters + 1
@@ -200,30 +243,102 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
   // ---------------------------------------------------------- FLOW-1
 
   step('FLOW-1', 'the worldbuilder is writing the rules of the world')
-  const world = await ask(
-    'worldbuilder',
-    [
-      `Premise, verbatim: ${premise}`,
-      `Tone: ${tone}. Chapters: ${chapters}.`,
-      `Factions: ${range(bible.factions, '2–4')}. Technology entries: ${range(bible.technology_entries, '3–6')}.`,
-      `Rules under "## Rules": ${range(bible.world_rules, '4–8')}.`,
-      `Length: ${bible.world_min_words ?? 400}–${bible.world_max_words ?? 900} words.`,
-      '',
-      'Return the Markdown document and nothing else. Do not name any character.',
-    ].join('\n'),
-  )
+
+  /**
+   * The orchestrator's own check, before anything reaches a gate.
+   *
+   * An agent's report about itself is not evidence: in the saved run the
+   * worldbuilder said it had written ~870 words and `wc -w` counted 948. So
+   * the world is measured here and sent back if it misses the band or the
+   * rules heading, and the rejected attempt is logged with what it cost.
+   */
+  const minRules = (bible.world_rules as { min?: number } | undefined)?.min ?? 4
+  const minWords = (bible.world_min_words as number) ?? 400
+  const maxWords = (bible.world_max_words as number) ?? 900
+
+  const askWorld = (correction: string) =>
+    ask(
+      'worldbuilder',
+      [
+        `Premise, verbatim: ${premise}`,
+        `Tone: ${tone}. Chapters: ${chapters}.`,
+        `Factions: ${range(bible.factions, '2–4')}. Technology entries: ${range(bible.technology_entries, '3–6')}.`,
+        `Rules under "## Rules": ${range(bible.world_rules, '4–8')}.`,
+        `Length: ${minWords}–${maxWords} words.`,
+        '',
+        'Return the Markdown document and nothing else. Do not name any character.',
+        correction,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    )
+
+  let world = await askWorld('')
+  let worldUsage = usage()
+  let worldAttempt = 1
+
+  const rulesIn = (doc: string) => {
+    const section = /^##\s*Rules\s*$([\s\S]*?)(?=^##\s|$)/m.exec(doc)?.[1] ?? ''
+    return section.split('\n').filter((line) => /^\s*-\s+/.test(line)).length
+  }
+
+  // Up to one correction. A second failure is accepted and left visible in the
+  // log rather than looped over: the run should finish and show its scars.
+  while (worldAttempt <= 2) {
+    const measured = words(world)
+    const rules = rulesIn(world)
+    const problems = [
+      measured < minWords || measured > maxWords
+        ? `it is ${measured} words and the band is ${minWords}–${maxWords}`
+        : '',
+      rules < minRules
+        ? `it has ${rules} bullets under "## Rules" and the minimum is ${minRules}`
+        : '',
+    ].filter(Boolean)
+
+    if (!problems.length) break
+
+    log.push({
+      kind: 'agent_call',
+      ts: now(),
+      stage: 'FLOW-1',
+      agent: 'worldbuilder',
+      iteration: worldAttempt,
+      verdict: 'rejected',
+      words: measured,
+      model: modelOf('worldbuilder'),
+      ...worldUsage,
+      reason: problems.join('; '),
+    })
+
+    if (worldAttempt === 2) break
+    worldAttempt += 1
+    step('FLOW-1', `the world was sent back: ${problems.join('; ')}`)
+    world = await askWorld(
+      `The previous attempt was rejected because ${problems.join(' and ')}. Fix that and change nothing else.`,
+    )
+    worldUsage = usage()
+  }
+
   docs['bible/world.md'] = world
   log.push({
     kind: 'agent_call',
     ts: now(),
     stage: 'FLOW-1',
     agent: 'worldbuilder',
-    iteration: 1,
+    iteration: worldAttempt,
     verdict: 'accepted',
     words: words(world),
     model: modelOf('worldbuilder'),
-    ...usage(),
+    ...worldUsage,
   })
+  log.push({
+    kind: 'stage_complete',
+    ts: now(),
+    stage: 'FLOW-1',
+    event: 'stage_complete',
+    attempts: worldAttempt,
+  } as LogEntry)
 
   // ---------------------------------------------------------- FLOW-2
 
@@ -265,6 +380,14 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
     model: modelOf('character-architect'),
     ...usage(),
   })
+
+  log.push({
+    kind: 'stage_complete',
+    ts: now(),
+    stage: 'FLOW-2',
+    event: 'stage_complete',
+    characters: canonicalNames.length,
+  } as LogEntry)
 
   const bibleBlock = [
     '### bible/world.md',
@@ -314,6 +437,14 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
     ...usage(),
   })
 
+  log.push({
+    kind: 'stage_complete',
+    ts: now(),
+    stage: 'FLOW-3',
+    event: 'stage_complete',
+    chapters_outlined: entries.length,
+  } as LogEntry)
+
   // ---------------------------------------------------------- FLOW-4
 
   const chapterStates: RunState['chapters'] = []
@@ -332,6 +463,8 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
       chatter: [],
     }
     let findingsToFix: Finding[] = []
+    const criticNotes: Record<string, string[]> = {}
+    const repairs: Record<string, string> = {}
 
     for (let iteration = 1; iteration <= maxRevisions + 1; iteration += 1) {
       drafts = iteration
@@ -391,7 +524,9 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
       const criticTask = (which: 'continuity' | 'science') =>
         [
           `Judge this chapter draft. Return JSON only, no code fence:`,
-          `{"score": 0-10, "findings": [{"kind": "...", "severity": "high|medium|low", "quote": "...", "fix": "...", "reference": "..."}]}`,
+          `{"score": 0-10, "findings": [{"kind": "...", "severity": "high|medium|low", "quote": "...", "fix": "...", "reference": "..."}], "notes": ["what you checked and decided not to report"]}`,
+          'Include `notes` whatever the score. A 10 with no notes is indistinguishable',
+          'from not having looked, and a reader is entitled to tell those apart.',
           '',
           'The draft:',
           '',
@@ -408,12 +543,23 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
         criticUsage[which] = usage()
         try {
           const body = /\{[\s\S]*\}/.exec(raw)?.[0] ?? raw
-          const parsed = JSON.parse(body) as { score: number; findings?: Finding[] }
-          return { score: Math.max(0, Math.min(10, parsed.score ?? 0)), findings: parsed.findings ?? [] }
+          const parsed = JSON.parse(body) as { score: number; findings?: Finding[]; notes?: string[] }
+          return {
+            score: Math.max(0, Math.min(10, parsed.score ?? 0)),
+            findings: parsed.findings ?? [],
+            notes: parsed.notes ?? [],
+            unparsed: false as const,
+          }
         } catch {
-          // A critic that did not return JSON cannot be scored, and guessing a
-          // score would be inventing the verdict the gate turns on.
-          return { score: 10, findings: [], unparsed: true as const }
+          // A critic that did not return JSON cannot be scored. Scoring it 10
+          // would invent the verdict the gate turns on, so the failure is
+          // recorded as a note instead and the draft passes this critic.
+          return {
+            score: 10,
+            findings: [],
+            notes: ['this critic did not return JSON, so its verdict was not scored'],
+            unparsed: true as const,
+          }
         }
       }
 
@@ -423,6 +569,8 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
       const science = await readJson('science')
       perCritic.continuity!.push({ iteration, score: continuity.score, findings: continuity.findings })
       perCritic.science!.push({ iteration, score: science.score, findings: science.findings })
+      criticNotes.continuity = [...(criticNotes.continuity ?? []), ...continuity.notes]
+      criticNotes.science = [...(criticNotes.science ?? []), ...science.notes]
 
       for (const [critic, score] of [
         ['continuity', continuity.score],
@@ -482,6 +630,19 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
 
       if (verdict !== 'retry') break
 
+      // What the writer is about to be asked to change, recorded now so the
+      // panel can say it afterwards rather than leaving "not recorded".
+      for (const [critic, found] of [
+        ['continuity', continuity.findings],
+        ['science', science.findings],
+      ] as const) {
+        if (!found.length) continue
+        repairs[critic] =
+          `draft ${iteration} was handed ${found.length} quoted finding` +
+          `${found.length === 1 ? '' : 's'} from this critic` +
+          (found[0]?.fix ? `, beginning: ${found[0].fix}` : '')
+      }
+
       findingsToFix = [...continuity.findings, ...science.findings].filter(
         (f) => f.upheld !== false,
       )
@@ -518,6 +679,8 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
         rule: critic === 'chatter' ? "first line must match '# Chapter N'" : undefined,
         iterations,
         final: iterations[iterations.length - 1],
+        notes: criticNotes[critic]?.length ? criticNotes[critic] : undefined,
+        repair: repairs[critic],
       })
     }
 
@@ -585,6 +748,14 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
     })
   }
 
+  log.push({
+    kind: 'stage_complete',
+    ts: now(),
+    stage: 'FLOW-5',
+    event: 'stage_complete',
+    passes_discarded: discarded,
+  } as LogEntry)
+
   // ---------------------------------------------------------- FLOW-6
 
   step('FLOW-6', 'the publisher is writing the synopsis')
@@ -624,6 +795,12 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
     note: 'concatenated in the page, not by an agent',
   } as LogEntry)
   log.push({
+    kind: 'stage_complete',
+    ts: now(),
+    stage: 'FLOW-6',
+    event: 'stage_complete',
+  } as LogEntry)
+  log.push({
     kind: 'run_event',
     ts: now(),
     event: 'run_complete',
@@ -641,7 +818,7 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
     slug,
     premise,
     profile,
-    config_hash: 'in-memory',
+    config_hash: hash,
     stage: 'complete',
     chapters: chapterStates,
     style_passes_discarded: discarded,

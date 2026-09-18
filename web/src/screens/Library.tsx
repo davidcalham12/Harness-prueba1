@@ -17,16 +17,21 @@ function Card({
   run,
   pricing,
   current,
+  writtenHere,
   onOpen,
   onRead,
   onDuplicate,
+  onDiscard,
 }: {
   run: RunSummary
   pricing: Pricing | null
   current: boolean
+  /** Written in this browser rather than read from output/. */
+  writtenHere: boolean
   onOpen: () => void
   onRead: () => void
   onDuplicate: () => void
+  onDiscard: () => void
 }) {
   const status = statusOf(run)
   // Priced against Opus because the writer and the Bible agents dominate a run;
@@ -38,6 +43,14 @@ function Card({
       <header>
         <h3>{titleFromSlug(run.slug)}</h3>
         <span className={`light light-${status.tone}`}>{status.label}</span>
+        {writtenHere && (
+          <span
+            className="badge badge-write"
+            title="Written in this page and kept in this browser only — not on disk, and not visible to anyone else."
+          >
+            written here
+          </span>
+        )}
         {current && <span className="badge">open</span>}
       </header>
 
@@ -82,7 +95,13 @@ function Card({
           <>
             {run.tokens.toLocaleString('en-GB')} tokens{' '}
             <ProvenanceBadge
-              of={run.tokens_source === 'reconstructed' ? 'reconstructed' : 'measured'}
+              of={
+                run.tokens_source === 'reconstructed'
+                  ? 'reconstructed'
+                  : run.tokens_source === 'estimated'
+                    ? 'estimated'
+                    : 'measured'
+              }
               compact
             />{' '}
             · <CostTriple cost={cost} />
@@ -92,8 +111,9 @@ function Card({
         )}
       </p>
       <p className="note note-tight">
-        Subagent calls only — what the orchestrator itself spent is not recorded, so the real total
-        is higher.
+        {writtenHere
+          ? 'Estimated from the characters this page sent and received; what the page itself spent orchestrating is not counted.'
+          : 'Subagent calls only — what the orchestrator itself spent is not recorded, so the real total is higher.'}
       </p>
 
       <footer>
@@ -106,6 +126,11 @@ function Card({
         <button type="button" onClick={onDuplicate}>
           Duplicate configuration
         </button>
+        {writtenHere && (
+          <button type="button" onClick={onDiscard} title="Remove it from this browser.">
+            Discard
+          </button>
+        )}
         {run.config_hash && <code className="hash">{run.config_hash}</code>}
       </footer>
     </article>
@@ -116,18 +141,26 @@ export function Library({
   index,
   pricing,
   currentSlug,
+  writtenHere = new Set<string>(),
+  unsaved = false,
   onOpen,
   onRead,
   onDuplicate,
   onNew,
+  onDiscard = () => {},
 }: {
   index: RunIndex | null
   pricing: Pricing | null
   currentSlug: string | null
+  /** Slugs this browser wrote, as opposed to read from output/. */
+  writtenHere?: Set<string>
+  /** True when the browser refused to keep the last one. */
+  unsaved?: boolean
   onOpen: (slug: string) => void
   onRead: (slug: string) => void
   onDuplicate: (run: RunSummary) => void
   onNew: () => void
+  onDiscard?: (slug: string) => void
 }) {
   const [query, setQuery] = useState('')
   const [profile, setProfile] = useState('')
@@ -209,13 +242,24 @@ export function Library({
               run={run}
               pricing={pricing}
               current={run.slug === currentSlug}
+              writtenHere={writtenHere.has(run.slug)}
               onOpen={() => onOpen(run.slug)}
               onRead={() => onRead(run.slug)}
               onDuplicate={() => onDuplicate(run)}
+              onDiscard={() => onDiscard(run.slug)}
             />
           ))}
         </div>
 
+        {writtenHere.size > 0 && (
+          <p className="note">
+            {unsaved
+              ? 'A novel written here could not be kept: your browser refused to store it, so it lasts until you reload.'
+              : `${writtenHere.size} of these ${writtenHere.size === 1 ? 'was' : 'were'} written in this page and kept in this browser only.`}{' '}
+            They are not on disk, not visible to anyone else, and not readable by Claude. To keep one
+            for good, open it and copy <code>dist/book.md</code>.
+          </p>
+        )}
         {index?.generated_at && (
           <p className="note">
             Index built {new Date(index.generated_at).toLocaleString('en-GB')} by{' '}

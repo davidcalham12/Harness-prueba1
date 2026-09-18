@@ -33,6 +33,7 @@ import { Run } from './screens/Run'
 import { Manuscript } from './screens/Manuscript'
 import { Presentation } from './screens/Presentation'
 import type { GeneratedRun } from './data/generate'
+import { forgetRun, loadStoredRuns, storeRun, summarise } from './data/store'
 
 /**
  * Two levels of navigation, because the panel now has two jobs.
@@ -82,6 +83,20 @@ export function App() {
    * the replay — works off the same log shape and needs no special case.
    */
   const [generated, setGenerated] = useState<GeneratedRun | null>(null)
+
+  /**
+   * Every novel written in this browser, newest first.
+   *
+   * These join the Library beside the runs on disk. They are restored from
+   * localStorage on load, which is a per-browser convenience and not a
+   * guarantee — see data/store.ts.
+   */
+  const [written, setWritten] = useState<GeneratedRun[]>([])
+  const [unsaved, setUnsaved] = useState(false)
+
+  useEffect(() => {
+    setWritten(loadStoredRuns())
+  }, [])
 
   const [theme, setTheme] = useState<'light' | 'dark'>(
     window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
@@ -135,12 +150,6 @@ export function App() {
     })()
   }, [slug, generated])
 
-  const openRun = useCallback((next: string, at: RunTab = 'diagram') => {
-    setGenerated(null)
-    setSlug(next)
-    setTab(at)
-  }, [])
-
   const adoptGenerated = useCallback((run: GeneratedRun) => {
     setGenerated(run)
     setState(run.state)
@@ -148,6 +157,31 @@ export function App() {
     setCritiques(run.critiques)
     setSlug(run.slug)
     setTab('quality')
+    setWritten((prev) => [run, ...prev.filter((r) => r.slug !== run.slug)])
+    setUnsaved(!storeRun(run))
+  }, [])
+
+  /** Opening a run: from memory if this browser wrote it, else from disk. */
+  const open = useCallback(
+    (next: string, at: RunTab = 'diagram') => {
+      const mine = written.find((r) => r.slug === next)
+      if (mine) {
+        setGenerated(mine)
+        setState(mine.state)
+        setLog(mine.log)
+        setCritiques(mine.critiques)
+      } else {
+        setGenerated(null)
+      }
+      setSlug(next)
+      setTab(at)
+    },
+    [written],
+  )
+
+  const discard = useCallback((target: string) => {
+    forgetRun(target)
+    setWritten((prev) => prev.filter((r) => r.slug !== target))
   }, [])
 
   const duplicate = useCallback((run: RunSummary) => {
@@ -162,6 +196,19 @@ export function App() {
     [log, shared?.pricing],
   )
   const clashes = useMemo(() => discrepancies(state, log), [state, log])
+
+  /** Disk and browser, in one list, newest first. */
+  const library = useMemo(() => {
+    const onDisk = shared?.index?.runs ?? []
+    const mine = written.map(summarise)
+    const merged = [...mine, ...onDisk.filter((r) => !mine.some((m) => m.slug === r.slug))]
+    return {
+      generated_at: shared?.index?.generated_at ?? '',
+      runs: merged.sort((a, b) =>
+        (b.finished_at ?? '').localeCompare(a.finished_at ?? ''),
+      ),
+    }
+  }, [shared?.index, written])
 
   if (error) {
     return (
@@ -267,11 +314,14 @@ export function App() {
 
             {generated && (
               <div className="check check-warn">
-                <strong>This novel was written in this page and is not saved.</strong> It lives in
-                memory and disappears when you reload. The agents here were prompts rather than
-                subagents, so the chapter writer&rsquo;s isolation rests on the page not sending it
-                prior prose rather than on it having no tool to fetch any — and no token counts come
-                back from the capability, so every figure below says so.
+                <strong>This novel was written in this page.</strong>{' '}
+                {unsaved
+                  ? 'Your browser would not keep it, so it lasts only until you reload.'
+                  : 'It is kept in this browser and nowhere else — not on disk, not for anyone else, not for Claude.'}{' '}
+                The agents here were prompts rather than subagents, so the chapter writer&rsquo;s
+                isolation rests on the page not sending it prior prose rather than on it having no
+                tool to fetch any. Tokens are estimated from the characters this page actually sent,
+                which is why they are graded apart from the ones a harness reports.
               </div>
             )}
 
@@ -323,13 +373,16 @@ export function App() {
       <main>
         {!inRun && place === 'library' && (
           <Library
-            index={shared.index}
+            index={library}
             pricing={shared.pricing}
             currentSlug={slug}
-            onOpen={(s) => openRun(s, 'quality')}
-            onRead={(s) => openRun(s, 'manuscript')}
+            writtenHere={new Set(written.map((r) => r.slug))}
+            unsaved={unsaved}
+            onOpen={(s) => open(s, 'quality')}
+            onRead={(s) => open(s, 'manuscript')}
             onDuplicate={duplicate}
             onNew={() => setPlace('new')}
+            onDiscard={discard}
           />
         )}
 
