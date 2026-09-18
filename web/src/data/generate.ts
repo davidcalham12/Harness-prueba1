@@ -33,9 +33,14 @@ import { slugifyPremise } from './derive'
  * 2. **Nothing is written to disk.** The run exists in memory and is rendered
  *    by the same screens as a run from `output/`. Reload and it is gone.
  *
- * 3. **No token counts.** `sample` returns text, not usage, so every log row
- *    here carries no `tokens` and the panel shows "not recorded" — which is the
- *    truth, and is exactly how it treats any figure the data does not carry.
+ * 3. **Tokens are estimated, not reported.** `sample` returns text and no usage,
+ *    so there is no token count to record. What this module *can* do is count
+ *    the characters it sends and receives, because it assembles every prompt
+ *    itself — and that is exact. Tokens follow at roughly four characters each,
+ *    which is a rule of thumb; every such figure is graded `estimated` and says
+ *    so. The character counts also give the context chart the measurement it
+ *    has always wanted: the size of the prompt the writer was actually handed,
+ *    rather than the tokens a subagent happened to consume.
  *
  * The agents' wording is not reinvented: the system prompts come from the same
  * `.claude/agents/*.md` bodies the panel already loads.
@@ -146,12 +151,46 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
     done += 1
   }
 
+  /** Short model names live in the agent files; pricing needs full ids. */
+  const modelOf = (agent: string): string => {
+    const short = agents.find((a) => a.name === agent)?.model ?? ''
+    if (short.includes('opus')) return 'claude-opus-5'
+    if (short.includes('sonnet')) return 'claude-sonnet-5'
+    if (short.includes('haiku')) return 'claude-haiku-4-5'
+    return short || 'unknown'
+  }
+
+  /**
+   * Characters in and characters out, for the call that just finished.
+   *
+   * Exact, because this page assembled the prompt and received the reply. It is
+   * the one usage figure available here — `sample` returns no token counts —
+   * and it is also better than what a terminal run records for the chart that
+   * matters: the size of the prompt the writer was handed, rather than the
+   * tokens a subagent consumed doing whatever it did.
+   */
+  let lastUsage = { prompt_chars: 0, output_chars: 0 }
+
   const ask = async (agent: string, task: string): Promise<string> => {
     if (signal?.aborted) throw new DOMException('cancelled', 'AbortError')
-    const res = await sample(`${promptOf(agents, agent)}\n\n---\n\n${task}`, { signal })
+    const prompt = `${promptOf(agents, agent)}\n\n---\n\n${task}`
+    const res = await sample(prompt, { signal })
+    const text = res.text.trim()
+    lastUsage = { prompt_chars: prompt.length, output_chars: text.length }
     tick()
-    return res.text.trim()
+    return text
   }
+
+  /** Roughly four characters to a token. A rule of thumb, graded as one. */
+  const CHARS_PER_TOKEN = 4
+  const usage = () => ({
+    ...lastUsage,
+    tokens: Math.max(
+      1,
+      Math.round((lastUsage.prompt_chars + lastUsage.output_chars) / CHARS_PER_TOKEN),
+    ),
+    tokens_source: 'estimated',
+  })
 
   const range = (r: unknown, fallback: string) => {
     const v = r as { min?: number; max?: number } | undefined
@@ -182,6 +221,8 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
     iteration: 1,
     verdict: 'accepted',
     words: words(world),
+    model: modelOf('worldbuilder'),
+    ...usage(),
   })
 
   // ---------------------------------------------------------- FLOW-2
@@ -221,6 +262,8 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
     agent: 'character-architect',
     iteration: 1,
     verdict: 'accepted',
+    model: modelOf('character-architect'),
+    ...usage(),
   })
 
   const bibleBlock = [
@@ -267,6 +310,8 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
     agent: 'plot-architect',
     iteration: 1,
     verdict: 'accepted',
+    model: modelOf('plot-architect'),
+    ...usage(),
   })
 
   // ---------------------------------------------------------- FLOW-4
@@ -304,8 +349,7 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
           ].join('\n')
         : ''
 
-      const draft = cleanChapter(
-        await ask(
+      const draftRaw = await ask(
           'chapter-writer',
           [
             `You are writing chapter ${n} of ${chapters}, titled "${title}".`,
@@ -326,8 +370,10 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
           ]
             .filter(Boolean)
             .join('\n'),
-        ),
       )
+      // Captured immediately: the next `ask` overwrites the slot.
+      const writerUsage = usage()
+      const draft = cleanChapter(draftRaw)
 
       // The two arithmetic critics, run here rather than asked for.
       const measured = words(draft)
@@ -356,8 +402,10 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
           which === 'continuity' ? bibleBlock : world,
         ].join('\n')
 
+      const criticUsage: Record<string, ReturnType<typeof usage>> = {}
       const readJson = async (which: 'continuity' | 'science') => {
         const raw = await ask(`${which}-critic`, criticTask(which))
+        criticUsage[which] = usage()
         try {
           const body = /\{[\s\S]*\}/.exec(raw)?.[0] ?? raw
           const parsed = JSON.parse(body) as { score: number; findings?: Finding[] }
@@ -369,7 +417,10 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
         }
       }
 
-      const [continuity, science] = await Promise.all([readJson('continuity'), readJson('science')])
+      // Sequential, not parallel: `lastUsage` is a single slot, and two
+      // concurrent calls would each read the other's characters.
+      const continuity = await readJson('continuity')
+      const science = await readJson('science')
       perCritic.continuity!.push({ iteration, score: continuity.score, findings: continuity.findings })
       perCritic.science!.push({ iteration, score: science.score, findings: science.findings })
 
@@ -386,6 +437,8 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
           iteration,
           verdict: 'score',
           score,
+          model: modelOf(`${critic}-critic`),
+          ...(criticUsage[critic] ?? {}),
         })
       }
       log.push({
@@ -397,6 +450,8 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
         iteration,
         verdict: 'draft',
         words: measured,
+        model: modelOf('chapter-writer'),
+        ...writerUsage,
       })
 
       const scores = {
@@ -500,18 +555,19 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
   for (let n = 1; n <= chapters; n += 1) {
     step('FLOW-5', `chapter ${n} — the style editor is normalising presentation`)
     const before = docs[`chapters/ch${pad(n)}.md`]!
-    const edited = cleanChapter(
-      await ask(
-        'style-editor',
-        [
-          'Normalise punctuation and spacing only. Change no word.',
-          `The word count of your reply must equal ${words(before)}.`,
-          'Return the chapter and nothing else.',
-          '',
-          before,
-        ].join('\n'),
-      ),
+    const editedRaw = await ask(
+      'style-editor',
+      [
+        'Normalise punctuation and spacing only. Change no word.',
+        `The word count of your reply must equal ${words(before)}.`,
+        'Return the chapter and nothing else.',
+        '',
+        before,
+      ].join('\n'),
     )
+    const styleUsage = usage()
+    const edited = cleanChapter(editedRaw)
+
     // Arithmetic, not judgement: a pass that moved a word is discarded.
     const kept = words(edited) === words(before) ? edited : before
     if (kept === before && edited !== before) discarded += 1
@@ -522,6 +578,8 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
       stage: 'FLOW-5',
       agent: 'style-editor',
       chapter: n,
+      model: modelOf('style-editor'),
+      ...styleUsage,
       verdict: kept === edited ? 'accepted' : 'rejected',
       note: kept === edited ? 'returned with the same word count' : 'word count moved; pass discarded',
     })

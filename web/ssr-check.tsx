@@ -124,6 +124,36 @@ const cases: Case[] = [
     expect: ['flat', 'proxy'],
   },
   {
+    // A run with no usage at all -- which is what an in-page run looked like
+    // before it counted characters, and what any run with a partial log looks
+    // like. It must say "not recorded", not draw a line through zeros and
+    // announce a 100% spread.
+    name: 'ContextChart (no usage)',
+    render: () =>
+      renderToString(
+        <ContextChart
+          log={log.map((e) =>
+            e.kind === 'agent_call' ? { ...e, tokens: undefined, prompt_chars: undefined } : e,
+          )}
+        />,
+      ),
+    expect: ['Not recorded', 'nothing to plot'],
+  },
+  {
+    name: 'Run (no usage)',
+    render: () =>
+      renderToString(
+        <Run
+          log={log.map((e) => (e.kind === 'agent_call' ? { ...e, tokens: undefined } : e))}
+          flow={flow}
+          agents={agents}
+          pricing={pricing}
+          critiques={critiques}
+        />,
+      ),
+    expect: ['Not recorded for this run', 'gap, not a zero'],
+  },
+  {
     name: 'Library',
     render: () =>
       renderToString(

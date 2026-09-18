@@ -30,6 +30,12 @@ const GRADES: Record<Provenance, { symbol: string; label: string; title: string 
     title:
       'Copied out of a session transcript after the fact, not recorded live as the run happened.',
   },
+  estimated: {
+    symbol: '≈',
+    label: 'estimated',
+    title:
+      'Derived from something that was measured. A run written in this page counts the characters it sent and received — that part is exact — and converts them to tokens at roughly four characters each, which is a rule of thumb and not a measurement.',
+  },
   absent: {
     symbol: '—',
     label: 'not recorded',

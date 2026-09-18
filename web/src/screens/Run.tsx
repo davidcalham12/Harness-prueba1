@@ -379,10 +379,25 @@ export function Run({
 
       <section>
         <h2>Where the tokens went</h2>
-        <p className="lede">
-          {tokens.total.toLocaleString('en-GB')} tokens{' '}
-          <ProvenanceBadge of={tokenProvenance(tokens.sources)} /> across {calls.length} calls.
-        </p>
+
+        {tokens.total === 0 ? (
+          <>
+            <p className="lede">Not recorded for this run.</p>
+            <div className="check check-warn">
+              <strong>No call on this run carries a token count.</strong> That is a gap, not a zero:
+              the {calls.length} calls below cost something, and nothing wrote down how much. A run
+              from Claude Code gets its figures from the harness; a run written in this page counts
+              the characters it sent and estimates from those. This one has neither, so the panel
+              declines to put a number on it rather than showing a plausible one.
+            </div>
+          </>
+        ) : (
+          <p className="lede">
+            {tokens.total.toLocaleString('en-GB')} tokens{' '}
+            <ProvenanceBadge of={tokenProvenance(tokens.sources)} /> across {calls.length} calls.
+          </p>
+        )}
+        {tokens.total > 0 && (
         <div className="bars">
           {tokens.byAgent.map((row) => (
             <div key={row.agent} className="bar-row">
@@ -398,6 +413,8 @@ export function Run({
             </div>
           ))}
         </div>
+        )}
+        {tokens.total > 0 && (
         <p className="finding-highlight">
           The two model critics take{' '}
           <strong>
@@ -412,9 +429,13 @@ export function Run({
           gate is the expensive half of this system, and nothing in the manuscript would tell you
           that.
         </p>
+        )}
+        {tokens.total > 0 && (
         <p>
           Total cost: <CostTriple cost={tokens.cost} size="large" />
         </p>
+        )}
+        {tokens.total > 0 && (
         <p className="warn-block">
           <strong>These figures cover subagent calls only.</strong> No log row without an{' '}
           <code>agent</code> field carries a token count, so the gate decisions, the arbitration, the
@@ -422,7 +443,8 @@ export function Run({
           nothing. They were not free — they are not recorded. The real total is higher by an unknown
           amount.
         </p>
-        <CostNote share={pricing?.assumed_input_share} />
+        )}
+        {tokens.total > 0 && <CostNote share={pricing?.assumed_input_share} />}
         {tokens.unpricedCalls > 0 && (
           <p className="note">
             {tokens.unpricedCalls} calls have no rate for their model in{' '}

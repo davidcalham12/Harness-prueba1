@@ -22,6 +22,9 @@ export type Provenance =
   | 'reported'
   /** Copied out of a session transcript after the fact. */
   | 'reconstructed'
+  /** Derived from something that was measured — tokens from a character
+   *  count, for instance. The input is real; the conversion is a rule. */
+  | 'estimated'
   /** The data does not carry it. */
   | 'absent'
 
@@ -65,6 +68,11 @@ export type AgentVerdict = 'draft' | 'score' | 'accepted' | 'rejected' | 'pendin
 /** A line with an `agent` field: one subagent call. */
 export interface AgentCall {
   kind: 'agent_call'
+  /** Characters sent and received. Recorded by a run written in the page,
+   *  which assembles the prompts itself and can therefore count them. A run
+   *  from Claude Code has neither: the harness reports tokens instead. */
+  prompt_chars?: number
+  output_chars?: number
   ts?: string
   stage?: string
   agent: string
