@@ -123,13 +123,61 @@ The band is `words_per_chapter.min` to `.max`, widened by `tolerance_pct`.
 
 Aggregate with `quality_gate.aggregate` — `min`, so **a chapter is only as good
 as its worst critic**. If the aggregate is at or above `quality_gate.threshold`,
-accept. Otherwise hand the findings back to `chapter-writer` — quoted verbatim,
-with the instruction to fix those and change nothing else — and redraft.
+accept. Otherwise redraft, following the four rules below.
 
 `quality_gate.max_revisions` is the number of *rewrites*, so 2 means up to three
 drafts. When drafts run out, apply `on_fail` from `flow.yaml` for FLOW-4:
 `accept_with_warnings` — keep the best draft, and record the warning where the
 user will see it.
+
+### Four rules for the redraft, each of which was once got wrong
+
+These were found by running the pipeline, not by reading it. Every one of them
+made the gate weaker in a way that looked like it was working.
+
+**1. Hand back the draft, not only the findings.** A redraft prompt that carries
+the findings without the text they quote is asking for "repair these and change
+nothing else" when there is nothing to change — so the writer starts a fresh
+chapter each round, against findings quoting text that is no longer in it, and a
+rewrite can come back worse than what it replaced.
+
+This is not a hole in the context policy, and the distinction is the whole
+point: the policy forbids a **previous chapter's** prose. This is the writer's
+own rejected draft of the chapter it is writing now.
+
+**2. Ask for substitutions, not for a chapter.** Rather than the whole chapter
+back, ask for the exact sentences to replace:
+
+```json
+{"patches": [{"find": "<text copied EXACTLY from the draft>",
+              "replace": "<the corrected text>",
+              "why": "<which finding this addresses>"}]}
+```
+
+Apply them yourself, matching `find` literally. Two things follow: anything the
+findings do not name **cannot** change, because you do not touch it; and "was
+this finding addressed" stops being a judgement — either the quoted text is
+still there or it is not. A `find` that does not match is skipped and counted,
+never applied approximately. If no patch applies at all, fall back to a full
+rewrite rather than burning the attempt on nothing, and record which happened.
+
+**3. A critic that returns no usable verdict is excluded, never counted as a
+pass.** If `continuity-critic` or `science-critic` comes back with something you
+cannot parse as a score, do not substitute one: 10 invents an approval and 0
+invents a rejection. Leave it out of the `min`, record it as unscored, and say
+so in the gate row's `note`. A gate running on three critics is weaker than one
+running on four, and that is the truth of what happened.
+
+**4. Keep the best draft, not the last.** Track the highest aggregate as you go.
+A chapter whose first draft scored 7 and whose third scored 4 must ship the 7 —
+a rewrite is not guaranteed to be an improvement and the gate must not assume it
+was. An *accepted* draft is the one that passed, which is not always the best.
+
+Two things that cost nothing and are worth doing. Tell the writer when it is on
+its last allowed draft, because one that knows it spends its effort on the
+findings rather than on flourishes. And after a redraft, check whether the
+quoted passages are still present verbatim — if one survived, the repair did not
+happen, and that is arithmetic rather than judgement.
 
 ### Record it
 
