@@ -47,8 +47,18 @@ import { slugifyPremise } from './derive'
  */
 
 export interface SampleFn {
-  (input: string, opts?: { onText?: (e: { text: string }) => void; signal?: AbortSignal }): Promise<{
+  (
+    input: string,
+    opts?: {
+      onText?: (e: { text: string }) => void
+      signal?: AbortSignal
+      /** Honoured by the dev-server route; the artifact capability ignores it. */
+      model?: string
+    },
+  ): Promise<{
     text: string
+    /** Present only where the route reports it. Real counts beat estimates. */
+    usage?: { input_tokens: number | null; output_tokens: number | null }
   }>
   json?: <T>(input: string, opts?: { signal?: AbortSignal }) => Promise<T>
 }
@@ -212,28 +222,52 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
    * matters: the size of the prompt the writer was handed, rather than the
    * tokens a subagent consumed doing whatever it did.
    */
-  let lastUsage = { prompt_chars: 0, output_chars: 0 }
+  let lastUsage: {
+    prompt_chars: number
+    output_chars: number
+    reported?: { input: number; output: number }
+  } = { prompt_chars: 0, output_chars: 0 }
 
   const ask = async (agent: string, task: string): Promise<string> => {
     if (signal?.aborted) throw new DOMException('cancelled', 'AbortError')
     const prompt = `${promptOf(agents, agent)}\n\n---\n\n${task}`
-    const res = await sample(prompt, { signal })
+    const res = await sample(prompt, { signal, model: modelOf(agent) })
     const text = res.text.trim()
-    lastUsage = { prompt_chars: prompt.length, output_chars: text.length }
+    lastUsage = {
+      prompt_chars: prompt.length,
+      output_chars: text.length,
+      // Where the route reports real usage it wins: a count is a count, and
+      // the character rule of thumb only exists because one was missing.
+      reported:
+        typeof res.usage?.input_tokens === 'number' && typeof res.usage?.output_tokens === 'number'
+          ? { input: res.usage.input_tokens, output: res.usage.output_tokens }
+          : undefined,
+    }
     tick()
     return text
   }
 
   /** Roughly four characters to a token. A rule of thumb, graded as one. */
   const CHARS_PER_TOKEN = 4
-  const usage = () => ({
-    ...lastUsage,
-    tokens: Math.max(
-      1,
-      Math.round((lastUsage.prompt_chars + lastUsage.output_chars) / CHARS_PER_TOKEN),
-    ),
-    tokens_source: 'estimated',
-  })
+  const usage = () => {
+    const { prompt_chars, output_chars, reported } = lastUsage
+    if (reported) {
+      return {
+        prompt_chars,
+        output_chars,
+        tokens: reported.input + reported.output,
+        input_tokens: reported.input,
+        output_tokens: reported.output,
+        tokens_source: 'measured',
+      }
+    }
+    return {
+      prompt_chars,
+      output_chars,
+      tokens: Math.max(1, Math.round((prompt_chars + output_chars) / CHARS_PER_TOKEN)),
+      tokens_source: 'estimated',
+    }
+  }
 
   const range = (r: unknown, fallback: string) => {
     const v = r as { min?: number; max?: number } | undefined

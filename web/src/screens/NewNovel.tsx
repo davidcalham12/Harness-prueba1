@@ -13,7 +13,7 @@ import {
 } from '../data/derive'
 import { CostNote, CostTriple } from '../components/Provenance'
 import { Configurator } from './Configurator'
-import { getSample } from '../data/claude'
+import { devServerReason, getSampleSource, type SampleSource } from '../data/claude'
 import { generateNovel, type GeneratedRun, type Progress } from '../data/generate'
 import type { AgentDef, FlowSpec } from '../types'
 
@@ -53,7 +53,8 @@ export function NewNovel({
   /** Hands a finished in-page run up, so the run screens can show it. */
   onGenerated: (run: GeneratedRun) => void
 }) {
-  const [sample, setSample] = useState<Awaited<ReturnType<typeof getSample>>>(null)
+  const [source, setSource] = useState<SampleSource | null>(null)
+  const [unavailable, setUnavailable] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState<Progress | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -63,8 +64,10 @@ export function NewNovel({
   // the capability gets null and the page simply does not offer it.
   useEffect(() => {
     let live = true
-    getSample().then((fn) => {
-      if (live) setSample(() => fn)
+    getSampleSource().then(async (found) => {
+      if (!live) return
+      setSource(found)
+      if (!found) setUnavailable(await devServerReason())
     })
     return () => {
       live = false
@@ -166,7 +169,7 @@ export function NewNovel({
   }
 
   const run = async () => {
-    if (!sample) return
+    if (!source) return
     const controller = new AbortController()
     setAborter(controller)
     setRunning(true)
@@ -179,7 +182,7 @@ export function NewNovel({
         profile: profileName,
         agents,
         flow,
-        sample,
+        sample: source.sample,
         signal: controller.signal,
         onProgress: setProgress,
       })
@@ -448,7 +451,7 @@ export function NewNovel({
         </p>
 
         <div className="run-actions">
-          {sample && (
+          {source && (
             <button
               type="button"
               className="primary"
@@ -464,7 +467,7 @@ export function NewNovel({
           )}
           <button
             type="button"
-            className={sample ? '' : 'primary'}
+            className={source ? '' : 'primary'}
             disabled={blocked || !premise.trim()}
             onClick={() => setConfirmed(true)}
           >
@@ -472,23 +475,50 @@ export function NewNovel({
           </button>
         </div>
 
-        {sample ? (
+        {source ? (
           <div className="check check-warn">
             <strong>Writing it here runs the pipeline in this page.</strong> Every stage becomes a
-            real request to Claude, billed to whoever has the page open, and the first one asks your
-            permission. The result is held in memory: it is shown on the same screens as a saved run
+            real request to Claude
+            {source.kind === 'artifact'
+              ? ', billed to whoever has the page open, and the first one asks your permission'
+              : ', sent through the dev server with the credential it holds'}
+            . The result is held in memory: it is shown on the same screens as a saved run
             and it is gone when you reload. Two things differ from a terminal run, and they are worth
             knowing —{' '}
             <strong>the agents are prompts here rather than subagents</strong>, so the chapter
             writer&rsquo;s isolation rests on this page not sending it prior prose rather than on it
-            having no tool to fetch any; and <strong>no token counts come back</strong>, so this run
-            will honestly report its cost as not recorded.
+            having no tool to fetch any; and{' '}
+            {source.reportsUsage ? (
+              <>
+                <strong>token counts come back real</strong>, so this run reports measured usage
+                rather than an estimate
+              </>
+            ) : (
+              <>
+                <strong>no token counts come back</strong>, so tokens are estimated from the
+                characters this page sends and receives
+              </>
+            )}
+            .
+          </div>
+        ) : unavailable ? (
+          <div className="check check-warn">
+            <strong>This page could write the novel here, and cannot yet.</strong> {unavailable}
+            <p className="note">
+              In PowerShell, from the repository root:
+              <br />
+              <code>$env:ANTHROPIC_API_KEY = 'sk-ant-…'</code>
+              <br />
+              then restart <code>npm run dev</code>. The key stays in the dev server process — the
+              browser never receives it, and it is never part of a build. Meanwhile the command
+              below runs the same pipeline in your terminal.
+            </p>
           </div>
         ) : (
           <p className="note">
             NovaForge runs in your terminal. This screen hands you a command and a profile; it starts
-            nothing, calls no model and writes nothing. (On the published page it can also write the
-            novel here, if the viewer grants it.)
+            nothing, calls no model and writes nothing. (On the published page, and on a dev server
+            holding a credential, it can also write the novel here.)
           </p>
         )}
       </section>

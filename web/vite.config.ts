@@ -172,8 +172,133 @@ function repoData(): Plugin {
   }
 }
 
+/**
+ * Lets the panel write a novel while running on the dev server.
+ *
+ * The published artifact can ask Claude through the `sample` capability. A
+ * local page cannot — there is no such capability outside the artifact
+ * runtime — so the two were not equivalent, and the local one could show a run
+ * but never produce one.
+ *
+ * This closes that gap with a dev-server route. **It is worth being clear that
+ * this is the backend the original brief ruled out**, and three things keep it
+ * contained:
+ *
+ * * It exists only in `configureServer`, so it is never in `vite build` and
+ *   never in the published artifact.
+ * * The credential is read from the environment by the SDK and stays in this
+ *   Node process. The browser never sees it, and the route refuses to echo it.
+ * * It does one thing: forward a prompt, return the text and the usage.
+ *
+ * The usage is the part worth having. The real API reports token counts, so a
+ * local run has MEASURED tokens where the artifact can only estimate them from
+ * characters — the panel grades the two apart.
+ */
+function localSampler(): Plugin {
+  let client: unknown = null
+  let clientError = ''
+
+  const getClient = async () => {
+    if (client || clientError) return client
+    try {
+      const { default: Anthropic } = await import('@anthropic-ai/sdk')
+      // Zero-arg: the SDK resolves ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, or
+      // an `ant auth login` profile. Never a key written into this file.
+      client = new Anthropic()
+    } catch (err) {
+      clientError = err instanceof Error ? err.message : String(err)
+    }
+    return client
+  }
+
+  const credentialPresent = () =>
+    Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)
+
+  return {
+    name: 'novaforge-local-sampler',
+    apply: 'serve',
+
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url?.startsWith('/api/sample')) return next()
+
+        res.setHeader('Content-Type', 'application/json')
+
+        // A probe, so the page can explain itself instead of failing silently.
+        if (req.method === 'GET') {
+          res.end(
+            JSON.stringify({
+              available: credentialPresent(),
+              reason: credentialPresent()
+                ? ''
+                : 'No Anthropic credential in this dev server process. Set ANTHROPIC_API_KEY and restart it.',
+            }),
+          )
+          return
+        }
+
+        if (req.method !== 'POST') {
+          res.statusCode = 405
+          res.end(JSON.stringify({ error: 'POST only' }))
+          return
+        }
+
+        const chunks: Buffer[] = []
+        for await (const chunk of req) chunks.push(chunk as Buffer)
+
+        try {
+          const { prompt, model } = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+            prompt?: string
+            model?: string
+          }
+          if (!prompt) throw new Error('no prompt')
+
+          const anthropic = (await getClient()) as {
+            messages: {
+              create: (args: unknown) => Promise<{
+                content: Array<{ type: string; text?: string }>
+                usage?: { input_tokens?: number; output_tokens?: number }
+                stop_reason?: string
+              }>
+            }
+          } | null
+          if (!anthropic) throw new Error(clientError || 'the Anthropic SDK could not be loaded')
+
+          const message = await anthropic.messages.create({
+            model: model || 'claude-opus-5',
+            max_tokens: 16000,
+            messages: [{ role: 'user', content: prompt }],
+          })
+
+          const text = message.content
+            .filter((block) => block.type === 'text')
+            .map((block) => block.text ?? '')
+            .join('')
+
+          res.end(
+            JSON.stringify({
+              text,
+              stop_reason: message.stop_reason,
+              usage: {
+                input_tokens: message.usage?.input_tokens ?? null,
+                output_tokens: message.usage?.output_tokens ?? null,
+              },
+            }),
+          )
+        } catch (err) {
+          // The message can name a credential problem but never carry a value:
+          // this response goes to the browser.
+          const raw = err instanceof Error ? err.message : String(err)
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: raw.replace(/sk-[A-Za-z0-9_-]{8,}/g, '[REDACTED]') }))
+        }
+      })
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), repoData()],
+  plugins: [react(), repoData(), localSampler()],
   base: './',
   server: { port: 5178, open: false },
   build: { outDir: 'dist', emptyOutDir: true },

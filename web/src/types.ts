@@ -73,6 +73,9 @@ export interface AgentCall {
    *  from Claude Code has neither: the harness reports tokens instead. */
   prompt_chars?: number
   output_chars?: number
+  /** Real counts, where the route reported them rather than a rule of thumb. */
+  input_tokens?: number
+  output_tokens?: number
   ts?: string
   stage?: string
   agent: string
