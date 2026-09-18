@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import { parse as parseYaml } from 'yaml'
 import fs from 'node:fs'
 import path from 'node:path'
+import { spawn, spawnSync } from 'node:child_process'
 
 const REPO_ROOT = path.resolve(__dirname, '..')
 
@@ -297,8 +298,190 @@ function localSampler(): Plugin {
   }
 }
 
+/**
+ * Runs one NovaForge agent through the Claude Code CLI.
+ *
+ * This is the best of the three routes the panel has, and the reason is not
+ * convenience: `claude -p --agent chapter-writer` runs that agent as a REAL
+ * SUBAGENT, with the tool list from `.claude/agents/chapter-writer.md`. Asked
+ * what tools it has, it answers "Glob" — so prior prose is unreachable to it
+ * rather than merely absent from its prompt. That is the guarantee this whole
+ * branch exists for, and the other two routes only hold it by discipline.
+ *
+ * It also needs no API key (it uses the machine's Claude Code session) and
+ * returns a real dollar cost, so the panel can stop bounding an estimate.
+ *
+ * **This spawns processes, so it is locked down deliberately:**
+ *
+ * * `agent` is checked against the files in `.claude/agents/`. There is no way
+ *   to pass a system prompt, so this cannot become "run whatever I send".
+ * * **The agent's own `tools:` line is the boundary**, which is the authority
+ *   model this branch is built on. `--restricted` is deliberately NOT passed:
+ *   measured here, it makes Claude Code fall back to its built-in agent list
+ *   and refuse `--agent publisher` outright, so it would defeat the whole
+ *   point. Nothing is lost by its absence — the eight definitions carry `Glob`
+ *   or `Read, Write`, and that is the restriction.
+ * * `--permission-mode dontAsk` denies anything that would prompt rather than
+ *   waiting for a human who is not there.
+ * * A per-call timeout, and `serve`-only so it is never in a build.
+ *
+ * Cost worth knowing: every invocation re-sends Claude Code's own system
+ * prompt, which measured at $0.03–0.10 per call before any work. A three
+ * chapter novel is ~20 calls.
+ */
+function claudeCodeAgents(): Plugin {
+  const AGENT_DIR = path.join(REPO_ROOT, '.claude', 'agents')
+  const TIMEOUT_MS = 10 * 60 * 1000
+
+  const knownAgents = (): string[] => {
+    if (!fs.existsSync(AGENT_DIR)) return []
+    return fs
+      .readdirSync(AGENT_DIR)
+      .filter((f) => f.endsWith('.md'))
+      .map((f) => f.replace(/\.md$/, ''))
+  }
+
+  const cliAvailable = (): boolean => {
+    const probe = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['claude'], {
+      encoding: 'utf8',
+    })
+    return probe.status === 0
+  }
+
+  return {
+    name: 'novaforge-claude-code-agents',
+    apply: 'serve',
+
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url?.startsWith('/api/agent')) return next()
+        res.setHeader('Content-Type', 'application/json')
+
+        const agents = knownAgents()
+
+        if (req.method === 'GET') {
+          const available = agents.length > 0 && cliAvailable()
+          res.end(
+            JSON.stringify({
+              available,
+              agents,
+              reason: available
+                ? ''
+                : !agents.length
+                  ? 'No agent definitions under .claude/agents/.'
+                  : 'The `claude` CLI is not on PATH for this dev server.',
+            }),
+          )
+          return
+        }
+
+        if (req.method !== 'POST') {
+          res.statusCode = 405
+          res.end(JSON.stringify({ error: 'POST only' }))
+          return
+        }
+
+        const chunks: Buffer[] = []
+        for await (const chunk of req) chunks.push(chunk as Buffer)
+
+        try {
+          const { agent, task } = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+            agent?: string
+            task?: string
+          }
+
+          // The allowlist is the security boundary. An agent name that is not a
+          // file in .claude/agents/ is refused, so this route can only ever run
+          // one of the eight definitions the repository ships.
+          if (!agent || !agents.includes(agent)) {
+            res.statusCode = 400
+            res.end(
+              JSON.stringify({
+                error: `unknown agent ${JSON.stringify(agent)}; this route runs only ${agents.join(', ')}`,
+              }),
+            )
+            return
+          }
+          if (!task) throw new Error('no task')
+
+          const result = await new Promise<string>((resolve, reject) => {
+            const child = spawn(
+              'claude',
+              [
+                '-p',
+                '--output-format', 'json',
+                '--agent', agent,
+                '--permission-mode', 'dontAsk',
+                task,
+              ],
+              {
+                cwd: REPO_ROOT,
+                shell: process.platform === 'win32',
+                // stdin closed, not inherited: Claude Code waits three seconds
+                // for piped input otherwise, and prints a warning that lands in
+                // the parsed output.
+                stdio: ['ignore', 'pipe', 'pipe'],
+              },
+            )
+
+            let stdout = ''
+            let stderr = ''
+            const timer = setTimeout(() => {
+              child.kill()
+              reject(new Error(`the ${agent} call exceeded ${TIMEOUT_MS / 60000} minutes`))
+            }, TIMEOUT_MS)
+
+            child.stdout.on('data', (d) => (stdout += d))
+            child.stderr.on('data', (d) => (stderr += d))
+            child.on('error', (err) => {
+              clearTimeout(timer)
+              reject(err)
+            })
+            child.on('close', (code) => {
+              clearTimeout(timer)
+              if (code !== 0) {
+                reject(new Error(stderr.trim() || `claude exited ${code}`))
+                return
+              }
+              resolve(stdout)
+            })
+          })
+
+          const parsed = JSON.parse(result) as {
+            result?: string
+            is_error?: boolean
+            total_cost_usd?: number
+            usage?: { input_tokens?: number; output_tokens?: number }
+            permission_denials?: unknown[]
+            subagent_stats?: { spawned?: number }
+          }
+          if (parsed.is_error) throw new Error(parsed.result || 'the agent reported an error')
+
+          res.end(
+            JSON.stringify({
+              text: parsed.result ?? '',
+              usage: {
+                input_tokens: parsed.usage?.input_tokens ?? null,
+                output_tokens: parsed.usage?.output_tokens ?? null,
+              },
+              // Computed by Claude Code, not by this panel. A cost that is
+              // measured rather than bounded.
+              cost_usd: parsed.total_cost_usd ?? null,
+              permission_denials: (parsed.permission_denials ?? []).length,
+            }),
+          )
+        } catch (err) {
+          const raw = err instanceof Error ? err.message : String(err)
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: raw.replace(/sk-[A-Za-z0-9_-]{8,}/g, '[REDACTED]') }))
+        }
+      })
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), repoData(), localSampler()],
+  plugins: [react(), repoData(), localSampler(), claudeCodeAgents()],
   base: './',
   server: { port: 5178, open: false },
   build: { outDir: 'dist', emptyOutDir: true },

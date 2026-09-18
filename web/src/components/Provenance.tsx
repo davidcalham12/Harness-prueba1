@@ -101,6 +101,18 @@ const money = (n: number) => `$${n.toFixed(2)}`
  * alone would present a judgement as a measurement.
  */
 export function CostTriple({ cost, size = 'normal' }: { cost: CostRange; size?: 'normal' | 'large' }) {
+  // A reported cost is not bounded, because there is nothing to bound: the
+  // runner computed it. Three figures here would invent an uncertainty.
+  if (cost.exact !== undefined) {
+    return (
+      <span className={`cost cost-${size} cost-exact`}>
+        <span className="cost-estimate" title="Reported by the runner, not derived from a token count.">
+          {money(cost.exact)}
+        </span>
+        <ProvenanceBadge of="measured" compact />
+      </span>
+    )
+  }
   if (cost.unpriced) {
     return (
       <span className="cost cost-unpriced" title="No rate for this model in config/pricing.json. An absent cost is a gap a reader can see; a wrong one is not.">
@@ -130,7 +142,16 @@ export function CostTriple({ cost, size = 'normal' }: { cost: CostRange; size?: 
 }
 
 /** The standing caveat, shown once per screen that reports cost. */
-export function CostNote({ share }: { share: number | undefined }) {
+export function CostNote({ share, exact }: { share: number | undefined; exact?: boolean }) {
+  if (exact) {
+    return (
+      <p className="note">
+        Cost here is <strong>reported, not bounded</strong>. Claude Code computed it for each call
+        and the panel added them up, so there is no assumption in it — unlike a run whose tokens
+        arrive as one total with no input/output split.
+      </p>
+    )
+  }
   return (
     <p className="note">
       Cost is <strong>bounded, not computed</strong>. The harness reports one token total per

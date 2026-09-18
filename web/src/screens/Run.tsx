@@ -444,7 +444,9 @@ export function Run({
           amount.
         </p>
         )}
-        {tokens.total > 0 && <CostNote share={pricing?.assumed_input_share} />}
+        {tokens.total > 0 && (
+          <CostNote share={pricing?.assumed_input_share} exact={tokens.cost.exact !== undefined} />
+        )}
         {tokens.unpricedCalls > 0 && (
           <p className="note">
             {tokens.unpricedCalls} calls have no rate for their model in{' '}

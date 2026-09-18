@@ -54,11 +54,16 @@ export interface SampleFn {
       signal?: AbortSignal
       /** Honoured by the dev-server route; the artifact capability ignores it. */
       model?: string
+      /** Which NovaForge agent this call is. The Claude Code route needs it to
+       *  run the right subagent; the other two ignore it. */
+      agent?: string
     },
   ): Promise<{
     text: string
     /** Present only where the route reports it. Real counts beat estimates. */
     usage?: { input_tokens: number | null; output_tokens: number | null }
+    /** A real dollar figure, where the route computed one. */
+    cost_usd?: number
   }>
   json?: <T>(input: string, opts?: { signal?: AbortSignal }) => Promise<T>
 }
@@ -226,12 +231,13 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
     prompt_chars: number
     output_chars: number
     reported?: { input: number; output: number }
+    cost_usd?: number
   } = { prompt_chars: 0, output_chars: 0 }
 
   const ask = async (agent: string, task: string): Promise<string> => {
     if (signal?.aborted) throw new DOMException('cancelled', 'AbortError')
     const prompt = `${promptOf(agents, agent)}\n\n---\n\n${task}`
-    const res = await sample(prompt, { signal, model: modelOf(agent) })
+    const res = await sample(prompt, { signal, model: modelOf(agent), agent })
     const text = res.text.trim()
     lastUsage = {
       prompt_chars: prompt.length,
@@ -242,6 +248,7 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
         typeof res.usage?.input_tokens === 'number' && typeof res.usage?.output_tokens === 'number'
           ? { input: res.usage.input_tokens, output: res.usage.output_tokens }
           : undefined,
+      cost_usd: res.cost_usd,
     }
     tick()
     return text
@@ -250,7 +257,7 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
   /** Roughly four characters to a token. A rule of thumb, graded as one. */
   const CHARS_PER_TOKEN = 4
   const usage = () => {
-    const { prompt_chars, output_chars, reported } = lastUsage
+    const { prompt_chars, output_chars, reported, cost_usd } = lastUsage
     if (reported) {
       return {
         prompt_chars,
@@ -259,6 +266,9 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
         input_tokens: reported.input,
         output_tokens: reported.output,
         tokens_source: 'measured',
+        // Computed by whoever ran the call, not derived here. Where this is
+        // present the panel shows one figure instead of bounding an estimate.
+        ...(typeof cost_usd === 'number' ? { cost_usd } : {}),
       }
     }
     return {

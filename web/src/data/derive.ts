@@ -63,13 +63,19 @@ export function costOf(tokens: number, model: string | undefined, pricing: Prici
 }
 
 export function addCost(a: CostRange, b: CostRange): CostRange {
-  if (b.unpriced) return a
+  if (b.unpriced && b.exact === undefined) return a
+  // Exact figures only add up while EVERY contributor has one. One call
+  // without a reported cost makes the total an estimate again, and saying
+  // otherwise would be the panel rounding a gap into a number.
+  const exact =
+    a.exact !== undefined && b.exact !== undefined ? a.exact + b.exact : undefined
   return {
     low: a.low + b.low,
     estimate: a.estimate + b.estimate,
     high: a.high + b.high,
-    assumedInputShare: b.assumedInputShare,
+    assumedInputShare: b.assumedInputShare || a.assumedInputShare,
     unpriced: false,
+    ...(exact !== undefined ? { exact } : {}),
   }
 }
 
@@ -90,10 +96,16 @@ export function summariseTokens(log: LogEntry[], pricing: Pricing | null): Token
   let cost: CostRange = { ...ZERO, unpriced: true }
   let unpricedCalls = 0
 
+  // An exact total is only possible when the first call had one; seed it so
+  // `addCost` can carry it, and let a single missing figure drop it.
+  const seeded = calls.length && typeof calls[0]?.cost_usd === 'number'
+  if (seeded) cost = { ...cost, exact: 0, unpriced: false }
+
   for (const call of calls) {
     const tokens = call.tokens ?? 0
     const c = costOf(tokens, call.model, pricing)
-    if (c.unpriced && tokens) unpricedCalls += 1
+    if (typeof call.cost_usd === 'number') c.exact = call.cost_usd
+    if (c.unpriced && c.exact === undefined && tokens) unpricedCalls += 1
     cost = addCost(cost, c)
     const prev = perAgent.get(call.agent) ?? { tokens: 0, cost: { ...ZERO } }
     perAgent.set(call.agent, { tokens: prev.tokens + tokens, cost: addCost(prev.cost, c) })

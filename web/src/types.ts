@@ -76,6 +76,9 @@ export interface AgentCall {
   /** Real counts, where the route reported them rather than a rule of thumb. */
   input_tokens?: number
   output_tokens?: number
+  /** A dollar figure the runner computed. Present only for a run that had one
+   *  — and where it is present, the panel stops bounding and states it. */
+  cost_usd?: number
   ts?: string
   stage?: string
   agent: string
@@ -302,6 +305,14 @@ export interface CostRange {
   assumedInputShare: number
   /** True when no rate was found for the model; then all three are zero. */
   unpriced: boolean
+  /**
+   * A cost the runner reported, in dollars.
+   *
+   * Bounding exists because a token total with no input/output split cannot be
+   * turned into a cost. When a runner hands over a real figure there is
+   * nothing to bound, and the panel shows that one number instead of three.
+   */
+  exact?: number
 }
 
 // ------------------------------------------------------------- run index

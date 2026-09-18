@@ -477,18 +477,23 @@ export function NewNovel({
 
         {source ? (
           <div className="check check-warn">
-            <strong>Writing it here runs the pipeline in this page.</strong> Every stage becomes a
-            real request to Claude
-            {source.kind === 'artifact'
-              ? ', billed to whoever has the page open, and the first one asks your permission'
-              : ', sent through the dev server with the credential it holds'}
-            . The result is held in memory: it is shown on the same screens as a saved run
+            <strong>Writing it here runs the pipeline in this page.</strong>{' '}
+            {source.kind === 'claude-code'
+              ? 'Each agent runs through Claude Code on this machine, billed to its session.'
+              : source.kind === 'artifact'
+                ? 'Every stage is a request to Claude, billed to whoever has the page open, and the first one asks your permission.'
+                : 'Every stage goes to the Anthropic API through the dev server, with the credential it holds.'} The result is held in memory: it is shown on the same screens as a saved run
             and it is gone when you reload. Two things differ from a terminal run, and they are worth
             knowing —{' '}
             <strong>the agents are prompts here rather than subagents</strong>, so the chapter
             writer&rsquo;s isolation rests on this page not sending it prior prose rather than on it
             having no tool to fetch any; and{' '}
-            {source.reportsUsage ? (
+            {source.kind === 'claude-code' ? (
+              <>
+                <strong>Claude Code reports what each call cost</strong>, so this run states one
+                dollar figure instead of bounding an estimate
+              </>
+            ) : source.reportsUsage ? (
               <>
                 <strong>token counts come back real</strong>, so this run reports measured usage
                 rather than an estimate
@@ -510,8 +515,13 @@ export function NewNovel({
               <code>$env:ANTHROPIC_API_KEY = 'sk-ant-…'</code>
               <br />
               then restart <code>npm run dev</code>. The key stays in the dev server process — the
-              browser never receives it, and it is never part of a build. Meanwhile the command
-              below runs the same pipeline in your terminal.
+              browser never receives it, and it is never part of a build.
+              <br />
+              <br />
+              Or, with <strong>no key at all</strong>: put the <code>claude</code> CLI on this dev
+              server&rsquo;s PATH. Each agent then runs through your own Claude Code session, as a
+              real subagent with its real tools. Meanwhile the command below runs the same pipeline
+              in your terminal.
             </p>
           </div>
         ) : (
