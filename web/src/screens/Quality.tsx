@@ -316,6 +316,13 @@ export function Quality({
                   ` Band ${openCritique.band.min}–${openCritique.band.max}, target ${openCritique.band.target}.`}
                 {openCritique.rule && ` Rule: ${openCritique.rule}`}
               </p>
+              {openIteration && openIteration.score < 0 && (
+                <p className="check check-warn">
+                  This critic returned no usable verdict for this draft, so it was excluded from the
+                  minimum rather than counted as a pass. The gate ran on the critics that did
+                  answer.
+                </p>
+              )}
               {openIteration?.measured_words !== undefined && (
                 <p>
                   Measured: <strong>{openIteration.measured_words.toLocaleString('en-GB')}</strong> words{' '}

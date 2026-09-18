@@ -217,7 +217,8 @@ export function WhyRepeated({
               return (
                 <div key={critique.critic} className="why-critic">
                   <h4>
-                    {CRITIC_LABEL[critique.critic] ?? critique.critic} — {iteration?.score}/10,{' '}
+                    {CRITIC_LABEL[critique.critic] ?? critique.critic} —{' '}
+                    {iteration && iteration.score < 0 ? 'no verdict' : `${iteration?.score}/10`},{' '}
                     {findings.length} problem{findings.length === 1 ? '' : 's'}
                     <span className="why-who">
                       {runLocally(critique.critic, critiques)

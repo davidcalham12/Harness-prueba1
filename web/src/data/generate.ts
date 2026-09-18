@@ -465,17 +465,43 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
     let findingsToFix: Finding[] = []
     const criticNotes: Record<string, string[]> = {}
     const repairs: Record<string, string> = {}
+    /** The draft a rejection refers to. See the note below. */
+    let previousDraft = ''
+    /** The best draft so far, by aggregate. Not the last one. */
+    let best: { draft: string; scores: Record<string, number>; aggregate: number } | null = null
 
     for (let iteration = 1; iteration <= maxRevisions + 1; iteration += 1) {
       drafts = iteration
       step('FLOW-4', `chapter ${n}, draft ${iteration} — the writer is working`)
 
-      // The writer's prompt: the Bible, ONE outline entry, the capped rolling
-      // summary. Never a previous chapter's prose.
+      /**
+       * A rejection hands back the draft it is about.
+       *
+       * This is not a hole in the context policy, and the distinction is the
+       * whole point: the policy forbids a PREVIOUS CHAPTER's prose. This is
+       * the writer's own rejected draft of the chapter it is writing now.
+       * Without it the instruction "repair these findings and change nothing
+       * else" is impossible — there is nothing to change — so the writer was
+       * starting a brand new chapter each round, against findings that quoted
+       * text no longer in it. That is why a rewrite could come back worse than
+       * what it replaced.
+       *
+       * The last allowed draft says so, because a writer that knows it is the
+       * last one spends its effort on the findings rather than on flourishes.
+       */
+      const last = iteration === maxRevisions + 1
       const fixes = findingsToFix.length
         ? [
             '',
-            'This draft was rejected. Repair exactly these findings and change nothing else:',
+            '--- YOUR PREVIOUS DRAFT, WHICH THE GATE REJECTED ---',
+            previousDraft,
+            '--- END OF THE REJECTED DRAFT ---',
+            '',
+            last
+              ? `This is draft ${iteration} of ${maxRevisions + 1}, the last one allowed. Whatever you return is what ships.`
+              : `That draft scored below the threshold of ${threshold}.`,
+            'Return the SAME chapter with exactly these findings repaired, and change nothing else.',
+            'Do not rewrite it. Do not restructure it. Each finding quotes the text it objects to:',
             ...findingsToFix.map(
               (f) => `- [${f.severity}] "${f.quote ?? ''}" — ${f.fix ?? f.claim ?? ''}`,
             ),
@@ -551,13 +577,21 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
             unparsed: false as const,
           }
         } catch {
-          // A critic that did not return JSON cannot be scored. Scoring it 10
-          // would invent the verdict the gate turns on, so the failure is
-          // recorded as a note instead and the draft passes this critic.
+          // A critic that did not return JSON has not delivered a verdict.
+          //
+          // This used to return 10, which meant a malformed reply SILENTLY
+          // PASSED the draft — the one failure mode a quality gate must not
+          // have. There is no honest score to substitute: 10 invents an
+          // approval and 0 invents a rejection. So it is reported as unscored,
+          // excluded from the minimum, and surfaced as an incident. A gate
+          // running on three critics instead of four is a weaker gate, and the
+          // panel says which one went missing rather than pretending it agreed.
           return {
-            score: 10,
+            score: null,
             findings: [],
-            notes: ['this critic did not return JSON, so its verdict was not scored'],
+            notes: [
+              'this critic did not return JSON, so it produced no verdict; it was excluded from the aggregate rather than counted as a pass',
+            ],
             unparsed: true as const,
           }
         }
@@ -567,8 +601,13 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
       // concurrent calls would each read the other's characters.
       const continuity = await readJson('continuity')
       const science = await readJson('science')
-      perCritic.continuity!.push({ iteration, score: continuity.score, findings: continuity.findings })
-      perCritic.science!.push({ iteration, score: science.score, findings: science.findings })
+      // `-1` marks "no verdict" in the critique file, distinct from a real 0.
+      perCritic.continuity!.push({
+        iteration,
+        score: continuity.score ?? -1,
+        findings: continuity.findings,
+      })
+      perCritic.science!.push({ iteration, score: science.score ?? -1, findings: science.findings })
       criticNotes.continuity = [...(criticNotes.continuity ?? []), ...continuity.notes]
       criticNotes.science = [...(criticNotes.science ?? []), ...science.notes]
 
@@ -583,8 +622,8 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
           agent: `${critic}-critic`,
           chapter: n,
           iteration,
-          verdict: 'score',
-          score,
+          verdict: score === null ? 'pending' : 'score',
+          ...(score === null ? { reason: 'no usable verdict returned' } : { score }),
           model: modelOf(`${critic}-critic`),
           ...(criticUsage[critic] ?? {}),
         })
@@ -602,14 +641,20 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
         ...writerUsage,
       })
 
-      const scores = {
-        continuity: continuity.score,
-        science: science.score,
-        length: lengthScore,
-        chatter: chatterScore,
-      }
+      // A critic with no verdict is left out of the aggregate rather than
+      // counted. `min` over three real scores is a weaker gate than four, and
+      // that is the truth of what happened; substituting a number would not
+      // make the gate stronger, only quieter.
+      const scores: Record<string, number> = { length: lengthScore, chatter: chatterScore }
+      if (continuity.score !== null) scores.continuity = continuity.score
+      if (science.score !== null) scores.science = science.score
+
+      const unscored = [
+        continuity.score === null ? 'continuity' : '',
+        science.score === null ? 'science' : '',
+      ].filter(Boolean)
+
       const aggregate = Math.min(...Object.values(scores))
-      const last = iteration === maxRevisions + 1
       const verdict = aggregate >= threshold ? 'accept' : last ? 'accept_with_warnings' : 'retry'
 
       log.push({
@@ -623,12 +668,31 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
         aggregate,
         threshold,
         verdict,
+        note: unscored.length
+          ? `${unscored.join(' and ')} returned no usable verdict and was excluded from the minimum`
+          : undefined,
       } as LogEntry)
 
-      accepted = draft
-      acceptedScores = scores
+      // The best draft, not the last.
+      //
+      // `on_fail: accept_with_warnings` says to keep the best one, and this
+      // kept whichever came last — so a chapter whose first draft scored 7 and
+      // whose third scored 4 shipped the 4. A rewrite is not guaranteed to be
+      // an improvement, and the gate should not assume it was.
+      if (!best || aggregate > best.aggregate) {
+        best = { draft, scores, aggregate }
+      }
+      accepted = best.draft
+      acceptedScores = best.scores
 
-      if (verdict !== 'retry') break
+      if (verdict !== 'retry') {
+        if (verdict === 'accept') {
+          // An accepted draft is the one that passed, not merely the best.
+          accepted = draft
+          acceptedScores = scores
+        }
+        break
+      }
 
       // What the writer is about to be asked to change, recorded now so the
       // panel can say it afterwards rather than leaving "not recorded".
@@ -643,6 +707,32 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
           (found[0]?.fix ? `, beginning: ${found[0].fix}` : '')
       }
 
+      // Did the last repair actually land?
+      //
+      // A finding quotes the text it objects to, so the cheapest possible check
+      // is whether that text is still there. It is arithmetic, it costs
+      // nothing, and it catches the case where a writer says it fixed
+      // something and did not.
+      if (previousDraft) {
+        const survived = findingsToFix.filter(
+          (f) => f.quote && f.quote.length > 12 && draft.includes(f.quote),
+        )
+        if (survived.length) {
+          log.push({
+            kind: 'agent_call',
+            ts: now(),
+            stage: 'FLOW-4',
+            agent: 'chapter-writer',
+            chapter: n,
+            iteration,
+            verdict: 'rejected',
+            model: modelOf('chapter-writer'),
+            reason: `${survived.length} quoted passage${survived.length === 1 ? '' : 's'} the previous round asked to change ${survived.length === 1 ? 'is' : 'are'} still present verbatim`,
+          })
+        }
+      }
+
+      previousDraft = draft
       findingsToFix = [...continuity.findings, ...science.findings].filter(
         (f) => f.upheld !== false,
       )
