@@ -5,12 +5,13 @@
   "type": "module",
   "description": "Read-only viewer for NovaForge runs. Reads the files the pipeline already writes; launches nothing, calls no model, writes nothing.",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "npm run index:runs && vite",
+    "build": "npm run index:runs && tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types smoke.mts && npm run render-check",
-    "render-check": "vite build --ssr ssr-check.tsx --outDir dist-ssr --logLevel warn && node dist-ssr/ssr-check.js"
+    "render-check": "vite build --ssr ssr-check.tsx --outDir dist-ssr --logLevel warn && node dist-ssr/ssr-check.js",
+    "index:runs": "node scripts/index-runs.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

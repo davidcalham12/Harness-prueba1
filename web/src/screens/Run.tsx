@@ -1,6 +1,13 @@
 import { useMemo } from 'react'
-import type { AgentCall, AgentDef, FlowSpec, LogEntry, Pricing } from '../types'
-import { agentCalls, costOf, summariseTokens, tokenProvenance } from '../data/derive'
+import type { AgentCall, AgentDef, Critique, FlowSpec, LogEntry, Pricing } from '../types'
+import {
+  agentCalls,
+  costOf,
+  orchestratorActivity,
+  runLocally,
+  summariseTokens,
+  tokenProvenance,
+} from '../data/derive'
 import { CostNote, CostTriple, ProvenanceBadge } from '../components/Provenance'
 
 /**
@@ -108,15 +115,22 @@ export function Run({
   flow,
   agents,
   pricing,
+  critiques = [],
 }: {
   log: LogEntry[]
   flow: FlowSpec
   agents: AgentDef[]
   pricing: Pricing | null
+  critiques?: Critique[]
 }) {
   const calls = useMemo(() => agentCalls(log), [log])
   const tokens = useMemo(() => summariseTokens(log, pricing), [log, pricing])
   const byName = useMemo(() => new Map(agents.map((a) => [a.name, a])), [agents])
+  const activity = useMemo(() => orchestratorActivity(log, critiques), [log, critiques])
+  const gateCritics = useMemo(
+    () => [...new Set(flow.stages.flatMap((s) => s.gate?.critics ?? []))],
+    [flow],
+  )
 
   /** Stage order comes from the spec, never from a list written here. */
   const lanes = flow.stages.map((stage) => {
@@ -145,6 +159,75 @@ export function Run({
           written per group rather than per call, so the order is real and the spacing is not. No bar
           on this page is proportional to time.
         </p>
+
+        {/* The orchestrator is not a box among the boxes. The agents appear and
+            finish; it is present for the whole run, and every row of the log
+            that carries no `agent` is something it did itself. */}
+        <section className="orchestrator-card">
+          <header>
+            <span className="orch-name">orchestrator</span>
+            <span className="badge">the Claude Code session</span>
+          </header>
+          <p className="lede">
+            Not the gap between the boxes. It dispatches every subagent, decides every gate, and
+            assembles the book. It is also what makes the central guarantee true: the chapter writer
+            gets whatever the orchestrator put in its prompt, and has no tool to fetch more.
+          </p>
+          <div className="orch-counts">
+            <span>
+              <strong>{activity.gateDecisions}</strong> gate decisions
+            </span>
+            <span>
+              <strong>{activity.criticsRunLocally.length}</strong> critics run in the shell
+              <em>{activity.criticsRunLocally.join(', ')}</em>
+            </span>
+            <span>
+              <strong>{activity.disagreementsArbitrated}</strong> arbitration
+              {activity.disagreementsArbitrated === 1 ? '' : 's'}
+            </span>
+            <span>
+              <strong>{activity.preGateRejections}</strong> rejection
+              {activity.preGateRejections === 1 ? '' : 's'} before the gate
+            </span>
+            <span>
+              <strong>{activity.assemblies}</strong> assembly of the book
+            </span>
+            <span>
+              <strong>{activity.events}</strong> log rows attributed to it
+            </span>
+          </div>
+          <table className="plain orch-compare">
+            <thead>
+              <tr>
+                <th></th>
+                <th>the eight agents</th>
+                <th>the orchestrator</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th>what it is</th>
+                <td>a subagent, own context window</td>
+                <td>the Claude Code session</td>
+              </tr>
+              <tr>
+                <th>tools</th>
+                <td>Write or Glob</td>
+                <td>all of them</td>
+              </tr>
+              <tr>
+                <th>tokens</th>
+                <td>recorded per call</td>
+                <td className="over">not recorded</td>
+              </tr>
+              <tr>
+                <th>what it contributes</th>
+                <td>one delivery</td>
+                <td>decisions, counts, arbitration</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
 
         <div className="lanes">
           {lanes.map(({ stage, stageCalls, chapters }) => (
@@ -232,6 +315,30 @@ export function Run({
             ? `The agents with writes_bible in flow.yaml are exactly the agents with the Write tool: ${[...toolWriters].join(', ')}.`
             : `Mismatch. flow.yaml declares ${[...declaredWriters].join(', ') || 'none'}; the Write tool is held by ${[...toolWriters].join(', ') || 'none'}.`}
         </div>
+        {gateCritics.length > 0 && (
+          <table className="plain">
+            <thead>
+              <tr>
+                <th>critic</th>
+                <th>who runs it</th>
+                <th>reproduces</th>
+              </tr>
+            </thead>
+            <tbody>
+              {gateCritics.map((critic) => {
+                const local = runLocally(critic, critiques)
+                return (
+                  <tr key={critic}>
+                    <td>{critic}</td>
+                    <td>{local ? 'the orchestrator, in the shell' : 'a subagent, with a model'}</td>
+                    <td className={local ? '' : 'over'}>{local ? 'yes' : 'no'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+
         <table className="plain">
           <thead>
             <tr>
@@ -307,6 +414,13 @@ export function Run({
         </p>
         <p>
           Total cost: <CostTriple cost={tokens.cost} size="large" />
+        </p>
+        <p className="warn-block">
+          <strong>These figures cover subagent calls only.</strong> No log row without an{' '}
+          <code>agent</code> field carries a token count, so the gate decisions, the arbitration, the
+          rolling summaries, the word counts and the assembly of the book all appear here as costing
+          nothing. They were not free — they are not recorded. The real total is higher by an unknown
+          amount.
         </p>
         <CostNote share={pricing?.assumed_input_share} />
         {tokens.unpricedCalls > 0 && (

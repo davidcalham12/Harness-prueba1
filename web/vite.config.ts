@@ -63,6 +63,7 @@ function filesToCopy(): string[] {
   walk('config/profiles')
   add('specs/flow.yaml')
   walk('.claude/agents')
+  add('output/runs.json')
   for (const slug of listRuns()) walk(`output/${slug}`)
   return out
 }

@@ -7,6 +7,7 @@ import type {
   LogEntry,
   NovelConfig,
   Pricing,
+  RunIndex,
   RunState,
 } from '../types'
 
@@ -49,6 +50,43 @@ async function optional<T>(load: () => Promise<T>): Promise<T | null> {
 
 export async function loadRuns(): Promise<string[]> {
   return optional(() => json<string[]>('runs.json')).then((r) => r ?? [])
+}
+
+/**
+ * `output/runs.json`, written by `npm run index:runs`.
+ *
+ * A static page cannot list a directory, so the Library needs the listing to
+ * exist as a file. Falling back to the dev server's own slug list keeps the
+ * panel usable before anyone has run the indexer — with the slug and nothing
+ * else, which the Library shows as a run it knows little about rather than
+ * inventing fields for.
+ */
+export async function loadRunIndex(): Promise<RunIndex | null> {
+  const index = await optional(() => json<RunIndex>('output/runs.json'))
+  if (index?.runs) return index
+
+  const slugs = await loadRuns()
+  if (!slugs.length) return null
+  return {
+    generated_at: '',
+    runs: slugs.map((slug) => ({
+      slug,
+      premise: null,
+      profile: null,
+      config_hash: null,
+      stage: 'unknown',
+      chapters: null,
+      manuscript_words: null,
+      retries: 0,
+      warnings: null,
+      subagent_calls: 0,
+      tokens: null,
+      tokens_source: null,
+      started_at: null,
+      finished_at: null,
+      has_state: false,
+    })),
+  }
 }
 
 /**

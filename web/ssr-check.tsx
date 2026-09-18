@@ -24,9 +24,13 @@ import { Run } from './src/screens/Run'
 import { Configurator } from './src/screens/Configurator'
 import { Presentation } from './src/screens/Presentation'
 import { ContextChart } from './src/components/ContextChart'
+import { Library } from './src/screens/Library'
+import { NewNovel } from './src/screens/NewNovel'
+import { Diagram } from './src/screens/Diagram'
+import { WhyRepeated } from './src/components/WhyRepeated'
 import { parseFrontMatter } from './src/data/load'
 import { parse as parseYaml } from 'yaml'
-import type { AgentDef, Critique, FlowSpec, LogEntry, NovelConfig, Pricing } from './src/types'
+import type { AgentDef, Critique, FlowSpec, LogEntry, NovelConfig, Pricing, RunIndex } from './src/types'
 
 // Resolved from the working directory, not from the module: the SSR bundle
 // lands in dist-ssr/ and `import.meta.dirname` would point there. This script
@@ -65,6 +69,8 @@ const agents: AgentDef[] = fs
       body,
     }
   })
+
+const runIndex = readJson<RunIndex>(path.join(ROOT, 'output', 'runs.json'))
 
 const { critics, rows } = gateTable(log)
 const critiques: Critique[] = []
@@ -116,6 +122,86 @@ const cases: Case[] = [
     name: 'ContextChart',
     render: () => renderToString(<ContextChart log={log} />),
     expect: ['flat', 'proxy'],
+  },
+  {
+    name: 'Library',
+    render: () =>
+      renderToString(
+        <Library
+          index={runIndex}
+          pricing={pricing}
+          currentSlug={null}
+          onOpen={() => {}}
+          onRead={() => {}}
+          onDuplicate={() => {}}
+          onNew={() => {}}
+        />,
+      ),
+    // The title is the formatted slug, which is the documented stand-in for a
+    // field the data contract does not have.
+    expect: ['Deep Space Salvage Derelict', 'needed a rewrite', 'Duplicate configuration'],
+  },
+  {
+    name: 'Library (empty)',
+    render: () =>
+      renderToString(
+        <Library
+          index={{ generated_at: '', runs: [] }}
+          pricing={pricing}
+          currentSlug={null}
+          onOpen={() => {}}
+          onRead={() => {}}
+          onDuplicate={() => {}}
+          onNew={() => {}}
+        />,
+      ),
+    expect: ['No novels yet', 'index:runs'],
+  },
+  {
+    name: 'NewNovel',
+    render: () =>
+      renderToString(
+        <NewNovel
+          base={base}
+          profiles={profiles}
+          log={log}
+          pricing={pricing}
+          seed={null}
+          onSeedConsumed={() => {}}
+        />,
+      ),
+    expect: [
+      'What should it be about',
+      'How many chapters',
+      'lines per chapter',
+      'runs in your terminal',
+      'Nothing stops a run once it starts',
+    ],
+  },
+  {
+    name: 'Diagram',
+    render: () =>
+      renderToString(
+        <Diagram flow={flow} log={log} critiques={critiques} onJump={() => {}} />,
+      ),
+    expect: ['FLOW-1', 'orchestrator', 'generated from', 'out of date'],
+  },
+  {
+    name: 'WhyRepeated',
+    render: () => renderToString(<WhyRepeated log={log} critiques={critiques} />),
+    // Asserted on strings that do not span a JSX interpolation: React's SSR
+    // puts comment markers between text nodes, so "Chapter {n}, draft {i}"
+    // never appears as one run of characters in the HTML even though it does
+    // on screen.
+    expect: [
+      'written twice',
+      'rewritten',
+      'reached the writer',   // the overruled finding in chapter 3
+      'What changed',
+      'what was checked',
+      'timeline arithmetic',  // a finding kind, translated
+      'overruled by the orchestrator',
+    ],
   },
 ]
 

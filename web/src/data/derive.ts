@@ -1,10 +1,13 @@
+import { ORCHESTRATOR } from '../types.ts'
 import type {
   AgentCall,
   CostRange,
   CriticDisagreement,
+  Critique,
   GateDecision,
   LogEntry,
   NovelConfig,
+  OrchestratorActivity,
   Pricing,
   Provenance,
   RunState,
@@ -442,4 +445,152 @@ export function deltaOf(base: unknown, candidate: unknown): unknown {
     if (diff !== undefined) out[key] = diff
   }
   return Object.keys(out).length ? out : undefined
+}
+
+// ------------------------------------------------------- the orchestrator
+
+/**
+ * Who performed a log row.
+ *
+ * The rule is simple and complete: a row with an `agent` field was performed
+ * by that subagent, and **every other row was performed by the orchestrator**.
+ * Gate decisions, the arbitration of a disagreement, stage completions and the
+ * assembly of the book all have no agent because none of them was delegated.
+ *
+ * Without this, a panel drops every row it cannot attribute and the run looks
+ * like eight agents and no referee.
+ */
+export function actorOf(entry: LogEntry): string {
+  return entry.kind === 'agent_call' ? entry.agent : ORCHESTRATOR
+}
+
+/** What the orchestrator did, counted from the rows nobody else signed. */
+export function orchestratorActivity(
+  log: LogEntry[],
+  critiques: Critique[] = [],
+): OrchestratorActivity {
+  const mine = log.filter((e) => e.kind !== 'agent_call')
+
+  // The critics it ran itself are the arithmetic ones — which is exactly why
+  // they are the two that reproduce.
+  const local = new Set<string>()
+  for (const critique of critiques) {
+    if (critique.kind === 'arithmetic') local.add(critique.critic)
+  }
+  if (local.size === 0) {
+    for (const decision of gateDecisions(log)) {
+      for (const name of Object.keys(decision.scores)) {
+        if (name === 'length' || name === 'chatter') local.add(name)
+      }
+    }
+  }
+
+  return {
+    gateDecisions: gateDecisions(log).length,
+    disagreementsArbitrated: disagreements(log).length,
+    preGateRejections: agentCalls(log).filter((c) => c.verdict === 'rejected').length,
+    criticsRunLocally: [...local].sort(),
+    assemblies: log.filter((e) => e.kind === 'run_event' && e.event === 'assemble').length,
+    stagesCompleted: log.filter((e) => e.kind === 'stage_complete').length,
+    events: mine.length,
+  }
+}
+
+/**
+ * Whether a critic was run by the orchestrator rather than delegated.
+ *
+ * Read from the critique file's own `kind` where one exists, because that is
+ * the run's own record of how it was scored, and falling back to the two the
+ * procedure runs in the shell.
+ */
+export function runLocally(critic: string, critiques: Critique[]): boolean {
+  const file = critiques.find((c) => c.critic === critic)
+  if (file) return file.kind === 'arithmetic'
+  return critic === 'length' || critic === 'chatter'
+}
+
+// ------------------------------------------------- lines -> configuration
+
+/**
+ * Lines are not full. Dialogue, paragraph breaks and short lines mean a line
+ * of prose carries well under its character ceiling; 0.65 is the fraction this
+ * derivation assumes, and it is a judgement rather than a measurement.
+ */
+export const LINE_FILL = 0.65
+
+/** Mean characters per word, including the trailing space. */
+// CHARS_PER_WORD is declared once above, next to feasibility().
+
+/**
+ * Turn "about this many lines per chapter" into the bands the pipeline needs.
+ *
+ * A reader thinks in lines; the pipeline gates on words and on a line band.
+ * This is the bridge, and it is deliberately approximate — checked against the
+ * two shipped profiles it lands within 8%:
+ *
+ *     profile   real lines    derived     real words   derived   error
+ *     tiny      25-95  (60)   27-93       420          454       +8%
+ *     full      120-380 (250) 112-388     2700         2481      -8%
+ *
+ * `tolerance_pct`, which is 20-25% in every profile, absorbs that comfortably.
+ * It is a starting point for the simple form; the advanced panel overrides it,
+ * and `feasibility()` is what decides whether the result can actually run.
+ */
+export function deriveFromLines(
+  lines: number,
+  charsPerLine: number,
+): {
+  lines_per_chapter: { min: number; max: number }
+  words_per_chapter: { min: number; target: number; max: number }
+} {
+  const target = Math.round((lines * charsPerLine * LINE_FILL) / CHARS_PER_WORD)
+  return {
+    lines_per_chapter: {
+      min: Math.round(0.45 * lines),
+      max: Math.round(1.55 * lines),
+    },
+    words_per_chapter: {
+      min: Math.round(0.7 * target),
+      target,
+      max: Math.round(1.3 * target),
+    },
+  }
+}
+
+/** The profile whose chapter count is nearest, for "starting from small…". */
+export function nearestProfile(
+  chapters: number,
+  profiles: Record<string, NovelConfig>,
+): string | null {
+  let best: { name: string; distance: number } | null = null
+  for (const [name, config] of Object.entries(profiles)) {
+    const n = config.novel?.chapters
+    if (typeof n !== 'number') continue
+    const distance = Math.abs(n - chapters)
+    if (!best || distance < best.distance) best = { name, distance }
+  }
+  return best?.name ?? null
+}
+
+/** A slug from a premise, the way the orchestrator derives one. */
+export function slugifyPremise(premise: string): string {
+  return premise
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/, '')
+}
+
+/** `deep-space-salvage-derelict` -> `Deep Space Salvage Derelict`.
+ *
+ *  A stand-in, and worth saying so: no run carries a title. There is no such
+ *  field in `state.json` or in the config. The day the pipeline writes one,
+ *  this is the function to delete. */
+export function titleFromSlug(slug: string): string {
+  return slug
+    .split('-')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
 }

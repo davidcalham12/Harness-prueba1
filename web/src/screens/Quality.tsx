@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type { AgentCall, Critique, Finding, LogEntry, RunState } from '../types'
 import { agentCalls, disagreements, gateTable } from '../data/derive'
 import { ProvenanceBadge } from '../components/Provenance'
+import { WhyRepeated } from '../components/WhyRepeated'
 
 /**
  * Which critics reproduce.
@@ -334,6 +335,8 @@ export function Quality({
           )}
         </section>
       )}
+
+      <WhyRepeated log={log} critiques={critiques} />
 
       {clashes.map((entry, n) => (
         <Disagreement key={n} entry={entry} />

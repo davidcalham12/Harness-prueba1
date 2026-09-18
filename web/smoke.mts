@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { classify } from './src/data/load.ts'
-import { gateTable, summariseTokens, discrepancies, agentCalls, disagreements, feasibility, deltaOf, deepMerge, tokenProvenance } from './src/data/derive.ts'
+import { gateTable, summariseTokens, discrepancies, agentCalls, disagreements, feasibility, deltaOf, deepMerge, tokenProvenance, orchestratorActivity, actorOf, runLocally, deriveFromLines, titleFromSlug, slugifyPremise } from './src/data/derive.ts'
 
 const W = 'C:/Users/student/Desktop/novaforge/output/deep-space-salvage-derelict'
 const R = 'C:/Users/student/Desktop/novaforge'
@@ -76,5 +76,71 @@ check('refuses traversal to .git', !serves('config/../.git/config'))
 check('refuses a repo document', !serves('HANDOFF.md'))
 check('refuses .claude outside agents/', !serves('.claude/settings.json'))
 
-console.log(fails ? `\n${fails} FAILED` : `\nall ${21 + 7} passed`)
+// --- the annex: the orchestrator is an actor, not a gap ------------------
+
+const critiques = fs
+  .readdirSync(`${W}/critiques`)
+  .filter((f) => f.endsWith('.json'))
+  .map((f) => JSON.parse(fs.readFileSync(`${W}/critiques/${f}`, 'utf8')))
+
+const activity = orchestratorActivity(log, critiques)
+check('orchestrator made 5 gate decisions', activity.gateDecisions === 5, activity.gateDecisions)
+check('orchestrator arbitrated 1 disagreement', activity.disagreementsArbitrated === 1)
+check('orchestrator rejected 1 agent before the gate', activity.preGateRejections === 1, activity.preGateRejections)
+check('orchestrator ran length and chatter itself',
+  activity.criticsRunLocally.join() === 'chatter,length', activity.criticsRunLocally)
+check('orchestrator assembled the book once', activity.assemblies === 1)
+check('every non-agent row is attributed to it',
+  activity.events === log.length - agentCalls(log).length, activity.events)
+check('no log row is dropped',
+  log.filter((e) => actorOf(e) === 'orchestrator').length + agentCalls(log).length === log.length)
+
+check('length reproduces', runLocally('length', critiques))
+check('chatter reproduces', runLocally('chatter', critiques))
+check('continuity does not', !runLocally('continuity', critiques))
+check('science does not', !runLocally('science', critiques))
+
+// --- the annex: repair and notes are real fields, and optional ------------
+
+const ch02cont = critiques.find((c: any) => c.chapter === 2 && c.critic === 'continuity')
+check('ch02 continuity carries repair', typeof ch02cont.repair === 'string')
+const ch01cont = critiques.find((c: any) => c.chapter === 1 && c.critic === 'continuity')
+check('ch01 continuity carries notes', Array.isArray(ch01cont.notes) && ch01cont.notes.length > 0)
+check('and some critiques carry neither',
+  critiques.some((c: any) => !c.repair && !c.notes))
+
+const ch03cont = critiques.find((c: any) => c.chapter === 3 && c.critic === 'continuity')
+const overruled = ch03cont.iterations[0].findings.filter((f: any) => f.upheld === false)
+check('ch03 draft 1 has exactly 1 overruled finding', overruled.length === 1, overruled.length)
+check('  and exactly 1 that reached the writer',
+  ch03cont.iterations[0].findings.filter((f: any) => f.upheld !== false).length === 1)
+
+// --- the annex: lines -> configuration, against the real profiles ---------
+
+const tinyDerived = deriveFromLines(60, 64)
+check('tiny line band derives near 25-95',
+  Math.abs(tinyDerived.lines_per_chapter.min - 25) <= 5 &&
+  Math.abs(tinyDerived.lines_per_chapter.max - 95) <= 5, tinyDerived.lines_per_chapter)
+check('tiny word target derives within 10% of 420',
+  Math.abs(tinyDerived.words_per_chapter.target - 420) / 420 < 0.1,
+  tinyDerived.words_per_chapter.target)
+const fullDerived = deriveFromLines(250, 84)
+check('full word target derives within 10% of 2700',
+  Math.abs(fullDerived.words_per_chapter.target - 2700) / 2700 < 0.1,
+  fullDerived.words_per_chapter.target)
+
+// --- the annex: the library ----------------------------------------------
+
+const index = JSON.parse(fs.readFileSync(`${R}/output/runs.json`, 'utf8'))
+check('manifest lists the run',
+  index.runs.length === 1 && index.runs[0].slug === 'deep-space-salvage-derelict')
+check('manifest counts 2 retries', index.runs[0].retries === 2, index.runs[0].retries)
+check('manifest marks state present', index.runs[0].has_state === true)
+check('manifest keeps token provenance', index.runs[0].tokens_source === 'reconstructed')
+check('title stands in for a field the data does not have',
+  titleFromSlug('deep-space-salvage-derelict') === 'Deep Space Salvage Derelict')
+check('a premise slugifies to at most 40 characters',
+  slugifyPremise('A deep-space salvage crew finds a derelict that remembers them').length <= 40)
+
+console.log(fails ? `\n${fails} FAILED` : `\nall ${fails === 0 ? 'checks' : ''} passed`)
 process.exit(fails ? 1 : 0)

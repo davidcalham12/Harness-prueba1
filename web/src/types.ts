@@ -292,3 +292,61 @@ export interface CostRange {
   /** True when no rate was found for the model; then all three are zero. */
   unpriced: boolean
 }
+
+// ------------------------------------------------------------- run index
+
+/** One row of `output/runs.json`, written by `npm run index:runs`. */
+export interface RunSummary {
+  slug: string
+  premise: string | null
+  profile: string | null
+  config_hash: string | null
+  stage: string
+  chapters: number | null
+  manuscript_words: number | null
+  retries: number
+  warnings: number | null
+  subagent_calls: number
+  tokens: number | null
+  tokens_source: string | null
+  started_at: string | null
+  finished_at: string | null
+  /** False when the run stopped before writing state.json. A real state. */
+  has_state: boolean
+}
+
+export interface RunIndex {
+  generated_at: string
+  runs: RunSummary[]
+}
+
+// -------------------------------------------------------- the orchestrator
+
+/**
+ * The ninth actor.
+ *
+ * The eight agents are subagents, each in its own context window. The
+ * orchestrator is the Claude Code session that dispatches them, and it is not
+ * a gap between the boxes: it runs two of the four critics itself, makes every
+ * gate decision, overrules a critic when one is wrong, rejects an agent's work
+ * before the gate ever sees it, writes the rolling summaries the chapter
+ * writer is fed, and assembles the book in the shell.
+ *
+ * It is also what makes the central guarantee true. The chapter writer has
+ * `Glob` and cannot fetch anything; what reaches it is whatever the
+ * orchestrator put in the prompt.
+ */
+export const ORCHESTRATOR = 'orchestrator' as const
+
+/** Everything the orchestrator did in a run, counted from the log. */
+export interface OrchestratorActivity {
+  gateDecisions: number
+  disagreementsArbitrated: number
+  preGateRejections: number
+  /** Critics it ran itself — the two that reproduce. */
+  criticsRunLocally: string[]
+  assemblies: number
+  stagesCompleted: number
+  /** Events attributed to it, i.e. every log row with no `agent` field. */
+  events: number
+}

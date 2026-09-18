@@ -115,11 +115,15 @@ export function Configurator({
   profiles,
   log,
   pricing,
+  embedded = false,
 }: {
   base: NovelConfig
   profiles: Record<string, NovelConfig>
   log: LogEntry[]
   pricing: Pricing | null
+  /** Inside "New novel", the projection and the export live on that screen;
+   *  showing them twice would be two sets of numbers to reconcile. */
+  embedded?: boolean
 }) {
   const [profileName, setProfileName] = useState<string>('tiny')
   const [edits, setEdits] = useState<Record<string, unknown>>({})
@@ -266,6 +270,7 @@ export function Configurator({
         ))}
       </section>
 
+      {!embedded && (
       <section>
         <h2>
           Feasibility <span className={`light light-${light}`}>{light}</span>
@@ -284,7 +289,9 @@ export function Configurator({
           {checks.length === 0 && <li className="check check-ok">nothing to check with these values</li>}
         </ul>
       </section>
+      )}
 
+      {!embedded && (
       <section>
         <h2>Projection</h2>
         <table className="plain">
@@ -337,7 +344,9 @@ export function Configurator({
           control, and it runs once, here, before you begin.
         </p>
       </section>
+      )}
 
+      {!embedded && (
       <section>
         <h2>Export</h2>
         <p className="lede">
@@ -361,6 +370,7 @@ export function Configurator({
           </div>
         </div>
       </section>
+      )}
     </div>
   )
 }
