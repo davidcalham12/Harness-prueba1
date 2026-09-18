@@ -323,6 +323,11 @@ function localSampler(): Plugin {
  *   or `Read, Write`, and that is the restriction.
  * * `--permission-mode dontAsk` denies anything that would prompt rather than
  *   waiting for a human who is not there.
+ * * **The task travels on stdin, never in argv.** On Windows a spawn needs a
+ *   shell to resolve `claude`, and a shell means the arguments are re-parsed —
+ *   so a premise containing a quote and an `&` could have run a second command.
+ *   Claude Code reads its prompt from stdin, which removes the question
+ *   entirely: the text is never part of a command line.
  * * A per-call timeout, and `serve`-only so it is never in a build.
  *
  * Cost worth knowing: every invocation re-sends Claude Code's own system
@@ -412,17 +417,18 @@ function claudeCodeAgents(): Plugin {
                 '--output-format', 'json',
                 '--agent', agent,
                 '--permission-mode', 'dontAsk',
-                task,
               ],
               {
                 cwd: REPO_ROOT,
                 shell: process.platform === 'win32',
-                // stdin closed, not inherited: Claude Code waits three seconds
-                // for piped input otherwise, and prints a warning that lands in
-                // the parsed output.
-                stdio: ['ignore', 'pipe', 'pipe'],
+                // The task goes down stdin, so nothing the browser sent is ever
+                // part of a command line. Everything in argv above is a literal
+                // written here or a name checked against the allowlist.
+                stdio: ['pipe', 'pipe', 'pipe'],
               },
             )
+            child.stdin.write(task)
+            child.stdin.end()
 
             let stdout = ''
             let stderr = ''
@@ -480,8 +486,193 @@ function claudeCodeAgents(): Plugin {
   }
 }
 
+/**
+ * Hands the whole run to Claude Code, and watches.
+ *
+ * The agent-by-agent route keeps the gate in this panel's code. This one does
+ * not: it invokes the `novaforge` skill, so Claude Code reads
+ * `.claude/skills/novaforge/SKILL.md` and orchestrates the six stages itself,
+ * dispatching real subagents and writing real artefacts to `output/<slug>/`.
+ *
+ * What that buys, and it is the whole argument for it: **one pipeline instead
+ * of two.** The panel's in-page generator and the skill are two
+ * implementations of the same procedure, and they have already drifted once —
+ * four gate defects were fixed in the generator and lived on in the skill for
+ * a week. A run through this route cannot drift from the product, because it
+ * IS the product.
+ *
+ * What it costs: the panel stops knowing the gate's reasoning first-hand. It
+ * reads the run off disk afterwards like any other, and progress here is
+ * inferred from the event stream rather than counted.
+ *
+ * Permissions are an allowlist, not a bypass. The skill reads and writes under
+ * `output/`, dispatches subagents with Task, and counts words with `wc`; each
+ * of those is named, and nothing else is granted. The premise travels on stdin
+ * for the same reason as the other route — it must never reach a command line.
+ */
+function claudeCodeRuns(): Plugin {
+  interface Run {
+    id: string
+    child: ReturnType<typeof spawn>
+    events: unknown[]
+    done: boolean
+    error?: string
+    startedAt: number
+  }
+
+  const runs = new Map<string, Run>()
+
+  /** Exactly what the skill needs, and nothing that runs arbitrary commands. */
+  const ALLOWED_TOOLS = [
+    'Read',
+    'Write',
+    'Edit',
+    'Glob',
+    'Grep',
+    'Task',
+    'Bash(wc *)',
+    'Bash(mkdir *)',
+    'Bash(cat *)',
+    'Bash(ls *)',
+  ]
+
+  return {
+    name: 'novaforge-claude-code-runs',
+    apply: 'serve',
+
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        const url = req.url ?? ''
+        if (!url.startsWith('/api/run')) return next()
+        res.setHeader('Content-Type', 'application/json')
+
+        // --- start -------------------------------------------------------
+        if (req.method === 'POST' && url === '/api/run') {
+          const chunks: Buffer[] = []
+          for await (const chunk of req) chunks.push(chunk as Buffer)
+          try {
+            const { premise, profile } = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+              premise?: string
+              profile?: string
+            }
+            if (!premise?.trim()) throw new Error('no premise')
+            // A profile is a file name, so it is checked as one rather than
+            // interpolated on trust.
+            const profiles = fs.existsSync(path.join(REPO_ROOT, 'config', 'profiles'))
+              ? fs
+                  .readdirSync(path.join(REPO_ROOT, 'config', 'profiles'))
+                  .filter((f) => f.endsWith('.json'))
+                  .map((f) => f.replace(/\.json$/, ''))
+              : []
+            if (!profile || !profiles.includes(profile)) {
+              throw new Error(`unknown profile ${JSON.stringify(profile)}; have ${profiles.join(', ')}`)
+            }
+
+            const id = `run-${Date.now().toString(36)}`
+            const child = spawn(
+              'claude',
+              [
+                '-p',
+                '--output-format', 'stream-json',
+                '--verbose',
+                '--permission-mode', 'acceptEdits',
+                '--allowedTools', ...ALLOWED_TOOLS,
+              ],
+              {
+                cwd: REPO_ROOT,
+                shell: process.platform === 'win32',
+                stdio: ['pipe', 'pipe', 'pipe'],
+              },
+            )
+
+            const run: Run = { id, child, events: [], done: false, startedAt: Date.now() }
+            runs.set(id, run)
+
+            child.stdin.write(
+              [
+                'Run the novaforge skill.',
+                '',
+                `premise: ${premise.trim()}`,
+                `profile: ${profile}`,
+                '',
+                'Follow .claude/skills/novaforge/SKILL.md exactly, including the four',
+                'redraft rules. Do not ask me anything: proceed with the plan and report',
+                'at the end.',
+              ].join('\n'),
+            )
+            child.stdin.end()
+
+            let buffer = ''
+            child.stdout.on('data', (d: Buffer) => {
+              buffer += d.toString()
+              const lines = buffer.split('\n')
+              buffer = lines.pop() ?? ''
+              for (const line of lines) {
+                if (!line.trim()) continue
+                try {
+                  run.events.push(JSON.parse(line))
+                } catch {
+                  // A partial or non-JSON line is dropped rather than fatal:
+                  // the run itself is unaffected by what this panel can parse.
+                }
+              }
+            })
+            child.stderr.on('data', (d: Buffer) => {
+              run.error = (run.error ?? '') + d.toString()
+            })
+            child.on('close', () => {
+              run.done = true
+              // The Library reads a file, so rebuild it before anyone looks.
+              try {
+                spawnSync(process.execPath, [path.join(__dirname, 'scripts', 'index-runs.mjs')], {
+                  cwd: __dirname,
+                })
+              } catch {
+                // An unrebuilt index is a stale list, not a broken run.
+              }
+            })
+
+            res.end(JSON.stringify({ id }))
+          } catch (err) {
+            res.statusCode = 400
+            res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }))
+          }
+          return
+        }
+
+        // --- poll / stop --------------------------------------------------
+        const match = /^\/api\/run\/([A-Za-z0-9-]+)(\/stop)?/.exec(url)
+        const run = match ? runs.get(match[1]!) : undefined
+        if (!run) {
+          res.statusCode = 404
+          res.end(JSON.stringify({ error: 'no such run' }))
+          return
+        }
+
+        if (match?.[2]) {
+          run.child.kill()
+          run.done = true
+          res.end(JSON.stringify({ stopped: true }))
+          return
+        }
+
+        const since = Number(new URL(url, 'http://x').searchParams.get('since') ?? 0)
+        res.end(
+          JSON.stringify({
+            done: run.done,
+            error: run.error?.trim() || undefined,
+            total: run.events.length,
+            elapsed_ms: Date.now() - run.startedAt,
+            events: run.events.slice(since),
+          }),
+        )
+      })
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), repoData(), localSampler(), claudeCodeAgents()],
+  plugins: [react(), repoData(), localSampler(), claudeCodeAgents(), claudeCodeRuns()],
   base: './',
   server: { port: 5178, open: false },
   build: { outDir: 'dist', emptyOutDir: true },

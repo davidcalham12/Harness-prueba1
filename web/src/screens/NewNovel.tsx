@@ -15,6 +15,15 @@ import { CostNote, CostTriple } from '../components/Provenance'
 import { Configurator } from './Configurator'
 import { devServerReason, getSampleSource, type SampleSource } from '../data/claude'
 import { generateNovel, type GeneratedRun, type Progress } from '../data/generate'
+import {
+  emptyProgress,
+  pollRun,
+  readProgress,
+  skillAvailable,
+  startRun,
+  stopRun,
+  type RunProgress,
+} from '../data/orchestrate'
 import type { AgentDef, FlowSpec } from '../types'
 
 const EXAMPLES = [
@@ -59,6 +68,51 @@ export function NewNovel({
   const [progress, setProgress] = useState<Progress | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const [aborter, setAborter] = useState<AbortController | null>(null)
+
+  /** The other route: Claude Code orchestrates and the page watches. */
+  const [canOrchestrate, setCanOrchestrate] = useState(false)
+  const [runId, setRunId] = useState<string | null>(null)
+  const [watched, setWatched] = useState<RunProgress>(emptyProgress)
+
+  useEffect(() => {
+    let live = true
+    skillAvailable().then((ok) => {
+      if (live) setCanOrchestrate(ok)
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+
+  // Poll while a Claude Code run is going. Two seconds is slow enough not to
+  // matter against a run that takes half an hour, and fast enough to watch.
+  useEffect(() => {
+    if (!runId) return
+    let live = true
+    let seen = 0
+    const tick = async () => {
+      if (!live) return
+      try {
+        const feed = await pollRun(runId, seen)
+        seen = feed.total
+        setWatched((prev) => ({ ...readProgress(prev, feed.events), elapsedMs: feed.elapsed_ms }))
+        if (feed.done) {
+          setRunId(null)
+          if (feed.error) setFailure(feed.error)
+          return
+        }
+      } catch (err) {
+        setFailure(err instanceof Error ? err.message : String(err))
+        setRunId(null)
+        return
+      }
+      setTimeout(tick, 2000)
+    }
+    void tick()
+    return () => {
+      live = false
+    }
+  }, [runId])
 
   // Resolved after the first render, never during it: a view that cannot run
   // the capability gets null and the page simply does not offer it.
@@ -194,6 +248,75 @@ export function NewNovel({
       setRunning(false)
       setAborter(null)
     }
+  }
+
+  if (runId || watched.finished) {
+    const mins = Math.floor(watched.elapsedMs / 60000)
+    const secs = Math.floor((watched.elapsedMs % 60000) / 1000)
+    return (
+      <div className="screen">
+        <section className="running">
+          <h2>{watched.finished ? 'Claude Code finished' : 'Claude Code is writing it'}</h2>
+          <p className="lede">{watched.headline}</p>
+          <p className="progress-meta">
+            {mins}m {secs}s · {watched.dispatched.length} subagents dispatched ·{' '}
+            {watched.written.length} files written
+          </p>
+
+          {watched.dispatched.length > 0 && (
+            <p className="note">
+              <strong>Dispatched:</strong> {watched.dispatched.join(' · ')}
+            </p>
+          )}
+          {watched.written.length > 0 && (
+            <p className="note">
+              <strong>Written:</strong> {watched.written.slice(-8).join(' · ')}
+            </p>
+          )}
+
+          {watched.finished ? (
+            <>
+              <div className={`check check-${watched.finished.ok ? 'ok' : 'bad'}`}>
+                {watched.finished.ok
+                  ? 'The run completed. Its artefacts are on disk under output/, and the Library index has been rebuilt.'
+                  : 'The run reported an error. Whatever it wrote is still on disk.'}
+                {typeof watched.finished.costUsd === 'number' && (
+                  <>
+                    {' '}
+                    Cost: <strong>${watched.finished.costUsd.toFixed(2)}</strong>, reported by
+                    Claude Code.
+                  </>
+                )}
+              </div>
+              {watched.finished.summary && <pre className="code">{watched.finished.summary}</pre>}
+              <p className="note">
+                Orchestrated by Claude Code following{' '}
+                <code>.claude/skills/novaforge/SKILL.md</code> — the same procedure a terminal
+                run uses, with real subagents and real artefacts. Open the Library to read it.
+              </p>
+              <button type="button" onClick={() => setWatched(emptyProgress)}>
+                Back to the form
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="progress-track">
+                <div className="progress-fill progress-indeterminate" />
+              </div>
+              <p className="note">
+                Progress here is <strong>inferred, not counted</strong>. The page is reading Claude
+                Code&rsquo;s event stream over its shoulder, so what it shows is the last thing it
+                recognised — not a position in a plan it owns. A three-chapter run took about
+                37 minutes the one time it was measured.
+              </p>
+              <button type="button" onClick={() => runId && stopRun(runId)}>
+                Stop
+              </button>
+            </>
+          )}
+        </section>
+      </div>
+    )
   }
 
   if (running || failure) {
@@ -451,10 +574,28 @@ export function NewNovel({
         </p>
 
         <div className="run-actions">
-          {source && (
+          {canOrchestrate && (
             <button
               type="button"
               className="primary"
+              disabled={blocked || !premise.trim()}
+              onClick={async () => {
+                try {
+                  setFailure(null)
+                  setWatched(emptyProgress)
+                  setRunId(await startRun(premise.trim(), profileName))
+                } catch (err) {
+                  setFailure(err instanceof Error ? err.message : String(err))
+                }
+              }}
+            >
+              Let Claude Code write it
+            </button>
+          )}
+          {source && (
+            <button
+              type="button"
+              className={canOrchestrate ? '' : 'primary'}
               disabled={blocked || !premise.trim()}
               onClick={run}
             >
@@ -462,7 +603,7 @@ export function NewNovel({
                 ? 'Fix the configuration first'
                 : !premise.trim()
                   ? 'Write a premise first'
-                  : 'Write it here'}
+                  : 'Write it in this page'}
             </button>
           )}
           <button
@@ -474,6 +615,19 @@ export function NewNovel({
             Get the command instead
           </button>
         </div>
+
+        {canOrchestrate && (
+          <div className="check check-ok">
+            <strong>&ldquo;Let Claude Code write it&rdquo; is the faithful one.</strong> It invokes
+            the <code>novaforge</code> skill, so Claude Code orchestrates all six stages itself from{' '}
+            <code>SKILL.md</code> — the same procedure a terminal run follows — dispatching
+            real subagents and writing real artefacts to <code>output/</code>. One pipeline instead
+            of two, which matters: this page&rsquo;s own generator and the skill are two
+            implementations of one procedure, and they have drifted before. What you give up is
+            precision of progress — the page watches an event stream rather than counting its
+            own steps — and a run takes tens of minutes.
+          </div>
+        )}
 
         {source ? (
           <div className="check check-warn">
