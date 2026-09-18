@@ -490,25 +490,9 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
        * last one spends its effort on the findings rather than on flourishes.
        */
       const last = iteration === maxRevisions + 1
-      const fixes = findingsToFix.length
-        ? [
-            '',
-            '--- YOUR PREVIOUS DRAFT, WHICH THE GATE REJECTED ---',
-            previousDraft,
-            '--- END OF THE REJECTED DRAFT ---',
-            '',
-            last
-              ? `This is draft ${iteration} of ${maxRevisions + 1}, the last one allowed. Whatever you return is what ships.`
-              : `That draft scored below the threshold of ${threshold}.`,
-            'Return the SAME chapter with exactly these findings repaired, and change nothing else.',
-            'Do not rewrite it. Do not restructure it. Each finding quotes the text it objects to:',
-            ...findingsToFix.map(
-              (f) => `- [${f.severity}] "${f.quote ?? ''}" — ${f.fix ?? f.claim ?? ''}`,
-            ),
-          ].join('\n')
-        : ''
 
-      const draftRaw = await ask(
+      const writeFresh = () =>
+        ask(
           'chapter-writer',
           [
             `You are writing chapter ${n} of ${chapters}, titled "${title}".`,
@@ -525,11 +509,108 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
             'The Story Bible:',
             '',
             bibleBlock,
-            fixes,
           ]
             .filter(Boolean)
             .join('\n'),
-      )
+        )
+
+      /**
+       * A repair as a list of substitutions, not as a new chapter.
+       *
+       * Asking for the whole chapter back "with these fixed and nothing else"
+       * relies on the writer's restraint, and a model handed a whole chapter
+       * tends to improve it. Asking instead for the exact sentences to replace
+       * makes over-rewriting impossible: the orchestrator applies the patches
+       * itself, so anything not named simply cannot change, and the check that
+       * a finding was addressed stops being a judgement — either the quoted
+       * text is gone or it is not.
+       *
+       * Returns null when the writer produced nothing applicable, which is the
+       * caller's cue to fall back to a full rewrite rather than waste the
+       * attempt.
+       */
+      const repairSurgically = async (): Promise<{
+        draft: string
+        applied: number
+        missed: string[]
+      } | null> => {
+        const raw = await ask(
+          'chapter-writer',
+          [
+            'Your draft of this chapter was rejected. Repair it with substitutions.',
+            '',
+            'Return JSON and nothing else, no code fence:',
+            '{"patches": [{"find": "<text copied EXACTLY from the draft>", "replace": "<the corrected text>", "why": "<which finding this addresses>"}]}',
+            '',
+            'Every `find` must appear in the draft character for character — it is used',
+            'literally, so an approximation silently does nothing. Copy it, do not retype it.',
+            'Keep each `replace` about the same length as its `find`: the chapter has a word',
+            'band to stay inside.',
+            'Patch only what the findings name. Anything you do not name cannot change,',
+            'which is the point of doing it this way.',
+            last
+              ? `This is the last of ${maxRevisions + 1} allowed drafts, so whatever this produces is what ships.`
+              : '',
+            '',
+            'The findings, each quoting the text it objects to:',
+            ...findingsToFix.map(
+              (f) => `- [${f.severity}] "${f.quote ?? ''}" — ${f.fix ?? f.claim ?? ''}`,
+            ),
+            '',
+            '--- THE DRAFT ---',
+            previousDraft,
+            '--- END OF THE DRAFT ---',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        )
+
+        let patches: Array<{ find?: string; replace?: string }> = []
+        try {
+          const body = /\{[\s\S]*\}/.exec(raw)?.[0] ?? raw
+          patches = (JSON.parse(body) as { patches?: typeof patches }).patches ?? []
+        } catch {
+          return null
+        }
+
+        let out = previousDraft
+        let applied = 0
+        const missed: string[] = []
+        for (const patch of patches) {
+          if (!patch.find || patch.replace === undefined) continue
+          if (out.includes(patch.find)) {
+            out = out.replace(patch.find, patch.replace)
+            applied += 1
+          } else {
+            missed.push(patch.find.slice(0, 60))
+          }
+        }
+        return applied ? { draft: out, applied, missed } : null
+      }
+
+      let draftRaw: string
+      let patchNote: string | undefined
+
+      if (iteration === 1 || !previousDraft || !findingsToFix.length) {
+        draftRaw = await writeFresh()
+      } else {
+        const patched = await repairSurgically()
+        if (patched) {
+          draftRaw = patched.draft
+          patchNote =
+            `${patched.applied} substitution${patched.applied === 1 ? '' : 's'} applied` +
+            (patched.missed.length
+              ? `; ${patched.missed.length} did not match the draft and were skipped`
+              : '')
+        } else {
+          // No usable patch. A full rewrite is worse than a surgical repair but
+          // better than burning the attempt on nothing.
+          step('FLOW-4', `chapter ${n}, draft ${iteration} — no usable patch, rewriting instead`)
+          draftRaw = await writeFresh()
+          patchNote = 'the writer returned no applicable substitution; rewritten in full'
+        }
+      }
+
       // Captured immediately: the next `ask` overwrites the slot.
       const writerUsage = usage()
       const draft = cleanChapter(draftRaw)
@@ -639,6 +720,7 @@ export async function generateNovel(options: GenerateOptions): Promise<Generated
         words: measured,
         model: modelOf('chapter-writer'),
         ...writerUsage,
+        note: patchNote,
       })
 
       // A critic with no verdict is left out of the aggregate rather than
